@@ -1,0 +1,33 @@
+{
+  "name": "xauusd-command-center",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Personal XAUUSD trading command center — analysis, planning, journaling, replay/backtesting and risk management. Not a trading bot.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:core": "npm run build -w @xau/core",
+    "build:providers": "npm run build -w @xau/providers",
+    "build:libs": "npm run build:core && npm run build:providers",
+    "dev": "npm run build:libs && npm run dev -w @xau/web",
+    "build": "npm run build:libs && npm run build -w @xau/web",
+    "start": "npm run start -w @xau/web",
+    "test": "npm run test -w @xau/core && npm run test -w @xau/providers",
+    "test:watch": "npm run test:watch -w @xau/core",
+    "typecheck": "npm run typecheck -w @xau/core && npm run typecheck -w @xau/providers && npm run typecheck -w @xau/web",
+    "lint": "npm run lint -w @xau/web",
+    "db:generate": "npm run db:generate -w @xau/web",
+    "db:migrate": "npm run db:migrate -w @xau/web",
+    "db:push": "npm run db:push -w @xau/web",
+    "db:seed": "npm run db:seed -w @xau/web",
+    "db:studio": "npm run db:studio -w @xau/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
