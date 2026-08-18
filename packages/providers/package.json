@@ -1,0 +1,30 @@
+{
+  "name": "@xau/providers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Replaceable data providers: market data, economic calendar, news and broker metadata. Every provider returns an explicit unavailable result rather than a fabricated value.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@xau/core": "*",
+    "luxon": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
