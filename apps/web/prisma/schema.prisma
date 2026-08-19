@@ -1,0 +1,805 @@
+// XAUUSD Command Center — data model.
+//
+// Two rules shape this schema:
+//  1. Every market datapoint carries its provenance (provider, source
+//     timestamp, received time), so stale or duplicated data is detectable
+//     rather than silently trusted.
+//  2. Strategy versions are immutable records. Historical trades keep the
+//     version they were taken under, so changing the rules never rewrites
+//     what past results meant.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- identity
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  timezone     String   @default("Africa/Casablanca")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings         UserSettings?
+  sessionTokens    AuthSession[]
+  accounts         Account[]
+  tradingSessions  TradingSession[]
+  liquidityLevels  LiquidityLevel[]
+  fvgZones         FvgZone[]
+  structureEvents  StructureEvent[]
+  setups           Setup[]
+  trades           Trade[]
+  journalEntries   JournalEntry[]
+  screenshots      Screenshot[]
+  backtestRuns     BacktestRun[]
+  strategyVersions StrategyVersion[]
+  experiments      StrategyExperiment[]
+  dailyPlans       DailyPlan[]
+  weeklyReviews    WeeklyReview[]
+  missedSetups     MissedSetup[]
+  marketBias       MarketBias[]
+  alerts           Alert[]
+  economicEvents   EconomicEvent[]
+  marketDataSeries MarketDataSeries[]
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // Risk
+  defaultRiskPercent Float @default(0.5)
+  maxRiskPercent     Float @default(1)
+
+  // Strategy rules, mirroring StrategyRules in @xau/core.
+  minDisplacementScore      Int     @default(60)
+  requireChoch              Boolean @default(false)
+  requireFvgAfterStructure  Boolean @default(true)
+  maxFvgMitigation          Float   @default(0.9)
+  sensitivity               String  @default("balanced")
+  enforceSessionFilter      Boolean @default(true)
+  newsFilterEnabled         Boolean @default(false)
+  newsWindowMinutes         Int     @default(30)
+  maxBarsFromStructureBreak Int     @default(24)
+
+  // Manual trading block, set by the trader.
+  manualBlockActive Boolean @default(false)
+  manualBlockReason String  @default("")
+
+  // Experimental: let the app suggest a bias from detected structure.
+  aiBiasSuggestionEnabled Boolean @default(false)
+  aiAssistantEnabled      Boolean @default(true)
+
+  // Alert channels.
+  browserNotifications Boolean @default(false)
+  telegramEnabled      Boolean @default(false)
+  telegramChatId       String?
+  emailAlertsEnabled   Boolean @default(false)
+
+  activeStrategyVersion String @default("v1.0")
+
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  broker    String   @default("")
+  currency  String   @default("USD")
+  balance   Float
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades Trade[]
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------------- instruments
+
+model Instrument {
+  id             String   @id @default(cuid())
+  symbol         String   @unique
+  displayName    String
+  contractSize   Float    @default(100)
+  tickSize       Float    @default(0.01)
+  tickValue      Float    @default(1)
+  pricePrecision Int      @default(2)
+  minLot         Float    @default(0.01)
+  maxLot         Float    @default(100)
+  lotStep        Float    @default(0.01)
+  quoteCurrency  String   @default("USD")
+  // Specs differ by broker; the trader confirms this against their own.
+  brokerNote     String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  candles MarketDataSeries[]
+  trades  Trade[]
+}
+
+// ------------------------------------------------------------ market data
+
+// One row per (symbol, timeframe, provider) import or feed, carrying the
+// provenance the data-quality rules require.
+model MarketDataSeries {
+  id                String   @id @default(cuid())
+  userId            String?
+  instrumentId      String
+  symbol            String
+  timeframe         String
+  provider          String
+  sourceTimezone    String   @default("UTC")
+  importedFrom      String?
+  firstTime         DateTime
+  lastTime          DateTime
+  barCount          Int      @default(0)
+  duplicatesRemoved Int      @default(0)
+  gapCount          Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user       User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instrument Instrument     @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  candles    MarketCandle[]
+
+  @@unique([symbol, timeframe, provider, userId])
+  @@index([userId])
+}
+
+model MarketCandle {
+  id              String    @id @default(cuid())
+  seriesId        String
+  // Bar OPEN time, always stored in UTC.
+  time            DateTime
+  open            Float
+  high            Float
+  low             Float
+  close           Float
+  volume          Float?
+  // Provider-reported timestamp and our receipt time, kept separate so a
+  // stale feed is visible rather than inferred.
+  sourceTimestamp DateTime?
+  receivedAt      DateTime  @default(now())
+
+  series MarketDataSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, time])
+  @@index([seriesId, time])
+}
+
+// ---------------------------------------------------------------- sessions
+
+model TradingSession {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  kind             String
+  timezone         String
+  startMinutes     Int
+  endMinutes       Int
+  days             Int[]
+  tradingPermitted Boolean  @default(false)
+  enabled          Boolean  @default(true)
+  color            String   @default("#22c55e")
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------- economic calendar
+
+model EconomicEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  externalId  String?
+  name        String
+  country     String
+  time        DateTime
+  importance  String
+  category    String?
+  previous    Float?
+  forecast    Float?
+  actual      Float?
+  unit        String?
+  surprise    Float?
+  source      String   @default("manual")
+  // True when the row came from a point-in-time query, i.e. the values as
+  // they stood then. Backtests must only consume point-in-time rows.
+  pointInTime Boolean  @default(false)
+  reference   String?
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([externalId, source])
+  @@index([time])
+  @@index([userId, time])
+}
+
+// ---------------------------------------------------------- market context
+
+model MarketBias {
+  id        String   @id @default(cuid())
+  userId    String
+  symbol    String   @default("XAUUSD")
+  timeframe String
+  bias      String
+  // Whether the app suggested this or the trader set it. The trader's own
+  // bias is never overwritten by the engine.
+  source    String   @default("user")
+  rationale String   @default("")
+  date      DateTime
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, symbol, timeframe, date])
+  @@index([userId, date])
+}
+
+model LiquidityLevel {
+  id          String    @id @default(cuid())
+  userId      String
+  symbol      String    @default("XAUUSD")
+  type        String
+  side        String
+  price       Float
+  timeframe   String
+  status      String    @default("intact")
+  createdTime DateTime
+  eventTime   DateTime?
+  penetration Float?
+  manual      Boolean   @default(true)
+  label       String    @default("")
+  notes       String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setups Setup[] @relation("SetupLiquidity")
+
+  @@index([userId, symbol, status])
+}
+
+model FvgZone {
+  id             String    @id @default(cuid())
+  userId         String
+  symbol         String    @default("XAUUSD")
+  direction      String
+  timeframe      String
+  high           Float
+  low            Float
+  midpoint       Float
+  size           Float
+  relativeSize   Float?
+  status         String    @default("fresh")
+  mitigation     Float     @default(0)
+  createdTime    DateTime
+  firstTouchTime DateTime?
+  // Detected zones are engine output; manual zones are drawn by the trader.
+  manual         Boolean   @default(false)
+  // Ids of earlier zones this one overlaps. Overlapping zones stack: a dead
+  // zone is never revived by a new one forming over the same prices.
+  overlaps       String[]
+  quality        Int?
+  notes          String    @default("")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setups Setup[] @relation("SetupFvg")
+
+  @@index([userId, symbol, status])
+}
+
+model StructureEvent {
+  id              String   @id @default(cuid())
+  userId          String
+  symbol          String   @default("XAUUSD")
+  kind            String
+  direction       String
+  scope           String
+  timeframe       String
+  time            DateTime
+  brokenLevel     Float
+  brokenSwingTime DateTime
+  closePrice      Float
+  // The trader confirms or rejects detected structure; nothing is assumed.
+  review          String   @default("detected")
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, symbol, time])
+}
+
+// -------------------------------------------------------- strategy & setups
+
+model StrategyVersion {
+  id        String   @id @default(cuid())
+  userId    String
+  version   String
+  name      String
+  // Full StrategyRules snapshot. Historical calculations are never silently
+  // changed: editing rules creates a new version.
+  rules     Json
+  notes     String   @default("")
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setups       Setup[]
+  trades       Trade[]
+  backtestRuns BacktestRun[]
+  experiments  StrategyExperiment[]
+
+  @@unique([userId, version])
+  @@index([userId])
+}
+
+model Setup {
+  id        String @id @default(cuid())
+  userId    String
+  symbol    String @default("XAUUSD")
+  direction String
+  status    String @default("forming")
+  session   String @default("")
+
+  // Checklist state and the engine evaluation that produced the suggestion.
+  checklist         Json
+  evaluation        Json?
+  missingConditions String[]
+
+  htfBias4h    String @default("neutral")
+  htfBias1h    String @default("neutral")
+  bias30m      String @default("neutral")
+  structure15m String @default("neutral")
+  structure5m  String @default("neutral")
+
+  setupType         String?
+  liquidityType     String?
+  fvgTimeframe      String?
+  fvgQuality        Int?
+  displacementScore Int?
+  structureKind     String?
+
+  entry       Float?
+  stopLoss    Float?
+  takeProfit1 Float?
+  takeProfit2 Float?
+  takeProfit3 Float?
+  riskPercent Float?
+  lotSize     Float?
+
+  sessionValid Boolean @default(false)
+  newsPresent  Boolean @default(false)
+  newsNote     String  @default("")
+
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  strategyVersionId String?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategyVersion StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  liquidityLevels LiquidityLevel[] @relation("SetupLiquidity")
+  fvgZones        FvgZone[]        @relation("SetupFvg")
+  trade           Trade?
+  missedSetup     MissedSetup?
+
+  @@index([userId, createdAt])
+}
+
+// --------------------------------------------------------------- execution
+
+model Trade {
+  id           String  @id @default(cuid())
+  userId       String
+  accountId    String?
+  instrumentId String?
+  setupId      String? @unique
+
+  symbol    String @default("XAUUSD")
+  direction String
+  status    String @default("open")
+
+  openedAt DateTime
+  closedAt DateTime?
+  session  String    @default("")
+
+  entry       Float
+  initialStop Float
+  currentStop Float
+  takeProfit1 Float?
+  takeProfit2 Float?
+  takeProfit3 Float?
+
+  riskPercent   Float
+  riskAmount    Float
+  lotSize       Float
+  remainingLots Float
+
+  realisedPnl    Float  @default(0)
+  resultR        Float?
+  resultCurrency Float?
+  maeR           Float?
+  mfeR           Float?
+
+  // Context captured at entry, so statistics can slice by it later.
+  htfBias           String  @default("")
+  setupType         String?
+  liquidityType     String?
+  fvgTimeframe      String?
+  fvgQuality        Int?
+  sweepPresent      Boolean @default(false)
+  displacementScore Int?
+  structureKind     String?
+  entryModel        String?
+  managementModel   String  @default("A")
+  newsPresent       Boolean @default(false)
+
+  grade         String?
+  ruleViolation Boolean @default(false)
+
+  strategyVersionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account          Account?               @relation(fields: [accountId], references: [id])
+  instrument       Instrument?            @relation(fields: [instrumentId], references: [id])
+  setup            Setup?                 @relation(fields: [setupId], references: [id])
+  strategyVersion  StrategyVersion?       @relation(fields: [strategyVersionId], references: [id])
+  executions       TradeExecution[]
+  managementEvents TradeManagementEvent[]
+  journalEntry     JournalEntry?
+  screenshots      Screenshot[]
+
+  @@index([userId, openedAt])
+  @@index([userId, status])
+}
+
+model TradeExecution {
+  id      String   @id @default(cuid())
+  tradeId String
+  kind    String
+  time    DateTime
+  price   Float
+  lots    Float
+  percent Float
+  pnl     Float    @default(0)
+  reason  String   @default("")
+
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId])
+}
+
+model TradeManagementEvent {
+  id          String   @id @default(cuid())
+  tradeId     String
+  type        String
+  time        DateTime
+  price       Float?
+  percent     Float?
+  newStop     Float?
+  realisedPnl Float?
+  note        String   @default("")
+
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId])
+}
+
+// ----------------------------------------------------------------- journal
+
+model JournalEntry {
+  id      String @id @default(cuid())
+  userId  String
+  tradeId String @unique
+
+  emotion       String  @default("")
+  mistake       String  @default("")
+  lesson        String  @default("")
+  confidence    Int?
+  ruleViolation String  @default("")
+  notes         String  @default("")
+  grade         String?
+  processNote   String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Screenshot {
+  id          String   @id @default(cuid())
+  userId      String
+  tradeId     String?
+  // "before" or "after" the trade, or a standalone chart upload.
+  phase       String   @default("before")
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  // Stored on disk under the uploads volume; the path is relative to it.
+  storagePath String
+  caption     String   @default("")
+  // AI reading of the image, kept separate from the trader's own notes.
+  analysis    Json?
+  createdAt   DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trade Trade? @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MissedSetup {
+  id      String  @id @default(cuid())
+  userId  String
+  setupId String? @unique
+
+  time          DateTime
+  symbol        String   @default("XAUUSD")
+  direction     String
+  session       String   @default("")
+  reason        String
+  // What the setup would have produced, when the trader followed it up.
+  hypotheticalR Float?
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setup Setup? @relation(fields: [setupId], references: [id])
+
+  @@index([userId, time])
+}
+
+// -------------------------------------------------------- planning & review
+
+model DailyPlan {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime
+  symbol String   @default("XAUUSD")
+
+  bias4h  String @default("neutral")
+  bias1h  String @default("neutral")
+  bias30m String @default("neutral")
+
+  keyLevels          Json?
+  htfFvgs            Json?
+  liquidityNotes     String @default("")
+  majorNews          Json?
+  expectedVolatility String @default("")
+  londonPlan         String @default("")
+  newYorkPlan        String @default("")
+  noTradeConditions  String @default("")
+
+  duringSessionNotes String @default("")
+  afterSessionNotes  String @default("")
+  lessons            String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, symbol])
+  @@index([userId, date])
+}
+
+model WeeklyReview {
+  id        String   @id @default(cuid())
+  userId    String
+  weekStart DateTime
+  weekEnd   DateTime
+
+  statistics      Json
+  recommendations String[]
+  biggestMistake  String   @default("")
+  bestDecision    String   @default("")
+  notes           String   @default("")
+  ruleAdherence   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+  @@index([userId])
+}
+
+// -------------------------------------------------------- backtest & lab
+
+model BacktestRun {
+  id        String @id @default(cuid())
+  userId    String
+  name      String
+  symbol    String @default("XAUUSD")
+  timeframe String @default("5M")
+
+  from DateTime
+  to   DateTime
+
+  entryModel      String
+  managementModel String
+  // Full config snapshot, so a run can be reproduced exactly.
+  config          Json
+  statistics      Json?
+  tradeCount      Int    @default(0)
+  skippedCount    Int    @default(0)
+  dataProvider    String @default("local")
+  notes           String @default("")
+
+  strategyVersionId String?
+
+  createdAt DateTime @default(now())
+
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategyVersion StrategyVersion?         @relation(fields: [strategyVersionId], references: [id])
+  trades          BacktestTrade[]
+  experimentCells StrategyExperimentCell[]
+
+  @@index([userId, createdAt])
+}
+
+model BacktestTrade {
+  id    String @id @default(cuid())
+  runId String
+
+  direction   String
+  entryTime   DateTime
+  exitTime    DateTime?
+  entryPrice  Float
+  exitPrice   Float?
+  stopLoss    Float
+  takeProfit1 Float?
+  takeProfit2 Float?
+  takeProfit3 Float?
+  lotSize     Float
+
+  resultR           Float
+  resultCurrency    Float
+  maeR              Float
+  mfeR              Float
+  session           String  @default("")
+  entryModel        String
+  managementModel   String
+  fvgTimeframe      String?
+  liquidityContext  String?
+  structureKind     String?
+  displacementScore Int?
+  newsPresent       Boolean @default(false)
+  dayOfWeek         Int?
+  hourOfDay         Int?
+  fills             Json
+
+  run BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+model StrategyExperiment {
+  id       String @id @default(cuid())
+  userId   String
+  name     String
+  // "entry" compares entry models; "management" compares exit models.
+  kind     String @default("entry")
+  question String @default("")
+  config   Json
+  summary  Json?
+  caveat   String @default("")
+
+  strategyVersionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategyVersion StrategyVersion?         @relation(fields: [strategyVersionId], references: [id])
+  cells           StrategyExperimentCell[]
+
+  @@index([userId])
+}
+
+model StrategyExperimentCell {
+  id           String  @id @default(cuid())
+  experimentId String
+  runId        String?
+
+  entryModel         String
+  managementModel    String
+  statistics         Json
+  tradeCount         Int    @default(0)
+  runnerSurvivalRate Float?
+
+  experiment StrategyExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  run        BacktestRun?       @relation(fields: [runId], references: [id])
+
+  @@index([experimentId])
+}
+
+// ------------------------------------------------------------------ alerts
+
+model Alert {
+  id     String @id @default(cuid())
+  userId String
+  type   String
+  symbol String @default("XAUUSD")
+
+  // Trigger definition, shape depends on `type`.
+  config  Json
+  enabled Boolean @default(true)
+  // Fire once then disable, e.g. "price reaches this level".
+  oneShot Boolean @default(true)
+
+  channels String[] @default(["in-app"])
+
+  lastTriggeredAt DateTime?
+  triggerCount    Int       @default(0)
+  message         String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications AlertNotification[]
+
+  @@index([userId, enabled])
+}
+
+model AlertNotification {
+  id      String   @id @default(cuid())
+  alertId String
+  time    DateTime @default(now())
+  title   String
+  body    String
+  read    Boolean  @default(false)
+  channel String   @default("in-app")
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, read])
+}

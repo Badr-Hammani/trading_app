@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Dark trading-terminal styling.
+ *
+ * Dense by intent: a trader scanning between candles needs many values in one
+ * screen, not generous whitespace. Motion is limited to state changes that
+ * carry meaning — nothing animates for decoration.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-950 text-ink-100 antialiased;
+  font-feature-settings: 'tnum' 1, 'cv05' 1;
+}
+
+::selection {
+  background: rgba(167, 139, 250, 0.3);
+}
+
+/* Scrollbars sized for dense panels. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #26303f transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #26303f;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #36435a;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-card border border-ink-700 bg-ink-900;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-2 border-b border-ink-700 px-3 py-2;
+  }
+
+  .panel-title {
+    @apply text-2xs font-semibold uppercase tracking-[0.14em] text-ink-300;
+  }
+
+  .panel-body {
+    @apply p-3;
+  }
+
+  .stat-label {
+    @apply text-2xs uppercase tracking-[0.12em] text-ink-400;
+  }
+
+  .stat-value {
+    @apply font-mono text-sm text-ink-100;
+  }
+
+  .field-label {
+    @apply mb-1 block text-2xs uppercase tracking-[0.12em] text-ink-400;
+  }
+
+  .input {
+    @apply w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 font-mono text-sm text-ink-100
+      outline-none transition-colors placeholder:text-ink-500 focus:border-accent
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .select {
+    @apply w-full rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-ink-100
+      outline-none focus:border-accent;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded border px-3 py-1.5 text-xs
+      font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-default {
+    @apply border-ink-600 bg-ink-800 text-ink-100 hover:border-ink-500 hover:bg-ink-700;
+  }
+
+  .btn-primary {
+    @apply border-accent/60 bg-accent/15 text-accent hover:bg-accent/25;
+  }
+
+  .btn-bull {
+    @apply border-bull/50 bg-bull/10 text-bull hover:bg-bull/20;
+  }
+
+  .btn-bear {
+    @apply border-bear/50 bg-bear/10 text-bear hover:bg-bear/20;
+  }
+
+  .btn-ghost {
+    @apply border-transparent text-ink-300 hover:bg-ink-800 hover:text-ink-100;
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide;
+  }
+
+  .table-dense {
+    @apply w-full border-collapse text-xs;
+  }
+
+  .table-dense th {
+    @apply border-b border-ink-700 px-2 py-1.5 text-left text-2xs font-semibold uppercase
+      tracking-[0.1em] text-ink-400;
+  }
+
+  .table-dense td {
+    @apply border-b border-ink-800 px-2 py-1.5 text-ink-200;
+  }
+
+  .table-dense tbody tr:hover {
+    @apply bg-ink-850;
+  }
+
+  .num {
+    @apply font-mono tabular-nums;
+  }
+}
