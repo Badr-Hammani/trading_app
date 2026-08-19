@@ -165,6 +165,30 @@ in the chain as a fallback.
 
 ---
 
+## Where to get the API keys, and what they cost
+
+Checked August 2026. All of them are optional.
+
+| Key | Where | Cost | Worth it? |
+|---|---|---|---|
+| `FRED_API_KEY` | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) | **Free**, no paid tier. 120 req/min | **Get this one.** Powers the entire macro panel |
+| `OANDA_API_KEY` + `OANDA_ACCOUNT_ID` | fxTrade portal → My Services → Manage API Access ([docs](https://developer.oanda.com/rest-live-v20/introduction/)) | **Free** with a practice account | **Get this one.** The only source with a real bid/ask |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | Pay-per-use, no subscription | Only if you want the AI mentor |
+| `ALPHA_VANTAGE_API_KEY` | [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) | Free tier ~25 requests **per day**; paid from ~$50/mo | Skip unless OANDA is unavailable to you |
+| `TRADING_ECONOMICS_API_KEY` | [developer.tradingeconomics.com](https://developer.tradingeconomics.com) | Paid (~$149/mo and up); trial capped at ~100 requests | Skip. Enter events by hand instead |
+| Telegram bot token | [@BotFather](https://t.me/BotFather) in Telegram | Free | Only if you want phone notifications |
+
+The free path — FRED plus an OANDA practice account, with CSV history imported
+for backtesting — gives you live gold prices with a real spread, the full macro
+panel, and every offline feature, at no cost.
+
+The economic calendar is the one gap: Trading Economics is genuinely expensive
+for personal use. Entering the dozen events a month that matter for gold by hand
+takes a couple of minutes and drives the same countdown, warning band and news
+filter as the API would.
+
+---
+
 ## Architecture
 
 ```

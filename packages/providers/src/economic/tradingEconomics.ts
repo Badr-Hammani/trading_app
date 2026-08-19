@@ -47,7 +47,7 @@ const GOLD_RELEVANT = [
 ];
 
 export interface TradingEconomicsConfig {
-  /** `client:key`, or `guest:guest` for the sample dataset. */
+  /** Format is `client:key`, issued at developer.tradingeconomics.com. */
   apiKey: string;
   baseUrl?: string;
   countries?: string[];
@@ -106,7 +106,7 @@ export class TradingEconomicsProvider implements EconomicDataProvider {
       configured: Boolean(config.apiKey),
       website: 'https://docs.tradingeconomics.com/',
       setupHint:
-        'Set TRADING_ECONOMICS_API_KEY as client:key. The guest:guest key exposes a limited sample dataset.',
+        'Set TRADING_ECONOMICS_API_KEY as client:key from developer.tradingeconomics.com. Paid; the trial is capped at a small number of requests. Manually entered events are the free alternative and behave identically.',
     };
   }
 

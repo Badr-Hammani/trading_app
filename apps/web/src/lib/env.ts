@@ -23,7 +23,7 @@ export const env = {
   fredApiKey: process.env.FRED_API_KEY,
 
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  aiModel: process.env.AI_MODEL || 'claude-sonnet-4-5',
+  aiModel: process.env.AI_MODEL || 'claude-opus-5',
 
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
   telegramChatId: process.env.TELEGRAM_CHAT_ID,
