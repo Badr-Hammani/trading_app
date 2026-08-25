@@ -128,6 +128,19 @@ export function TradingChart({
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const drawOverlayRef = useRef<() => void>(() => {});
+
+  /**
+   * Bumped whenever the chart instance is rebuilt.
+   *
+   * The instance is recreated when timezone, precision or height changes, and
+   * timezone genuinely changes on every load — from the 'UTC' fallback to the
+   * trader's real zone once the first analysis response lands. Rebuilding
+   * discards the series, so every effect that feeds the chart has to run
+   * again. Keyed only on their own data they do not, and a series recreated
+   * after the candles already arrived is left empty — the chart renders blank,
+   * intermittently, depending on which fetch resolves first.
+   */
+  const [chartGeneration, setChartGeneration] = useState(0);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -423,6 +436,8 @@ export function TradingChart({
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
     chart.timeScale().subscribeVisibleTimeRangeChange(redraw);
+    // Tell the downstream effects to repopulate this new instance.
+    setChartGeneration((generation) => generation + 1);
     const observer = new ResizeObserver(redraw);
     observer.observe(container);
 
@@ -465,7 +480,7 @@ export function TradingChart({
       requestAnimationFrame(() => drawOverlayRef.current());
     }, 50);
     return () => clearTimeout(timer);
-  }, [candles]);
+  }, [candles, chartGeneration]);
 
   // --------------------------------------------------------------- markers
   useEffect(() => {
@@ -482,7 +497,7 @@ export function TradingChart({
           text: marker.text,
         })),
     );
-  }, [markers]);
+  }, [markers, chartGeneration]);
 
   // --------------------------------- price lines: liquidity and trade levels
   useEffect(() => {
@@ -535,7 +550,7 @@ export function TradingChart({
     }
 
     drawOverlayRef.current();
-  }, [effectiveLiquidity, trade]);
+  }, [effectiveLiquidity, trade, chartGeneration]);
 
   // ----------------------------- overlay: FVG zones, sessions, R:R shading
   useEffect(() => {
@@ -874,7 +889,7 @@ export function TradingChart({
       requestAnimationFrame(() => draw());
     }, 50);
     return () => clearTimeout(timer);
-  }, [effectiveFvgs, effectiveLiquidity, sessions, trade, candles, layers]);
+  }, [effectiveFvgs, effectiveLiquidity, sessions, trade, candles, layers, chartGeneration]);
 
   return (
     <div
@@ -980,7 +995,7 @@ export function TradingChart({
                     <span>🎯</span> ACTIVE SETUP ONLY
                   </div>
                   <div className="text-[10px] text-zinc-400">
-                    Isolate only the active setup's FVG & sweep level
+                    Isolate only the active setup&rsquo;s FVG & sweep level
                   </div>
                 </div>
                 <input
