@@ -90,20 +90,50 @@ an invented number.
 
 ## Quick start
 
-### Docker (recommended, and identical on Windows)
+### One command
+
+**Windows**
+
+```powershell
+.\start.ps1
+```
+
+**macOS / Linux**
+
+```bash
+./start.sh
+```
+
+That is the whole thing. The launcher creates `.env` if it is missing,
+generates `AUTH_SECRET` if it is blank, brings the stack up, waits for it to
+answer, and opens <http://localhost:3000>. Safe to re-run — it never overwrites
+an existing secret, and your database lives in a Docker volume that survives
+rebuilds.
+
+| Command | Does |
+|---|---|
+| `.\start.ps1` / `./start.sh` | Start (or restart) everything |
+| `-Stop` / `stop` | Stop the stack, keep the data |
+| `-Logs` / `logs` | Follow the web logs |
+| `-Rebuild` / `rebuild` | Force a clean image rebuild |
+| `-Reset` / `reset` | **Destroy** the database and start fresh |
+
+The first run builds the image and takes a few minutes; later runs take
+seconds. The first visit offers account creation; after that it is sign-in
+only. Migrations run automatically on container start.
+
+If Docker is not running the script says so and stops, rather than failing
+somewhere less obvious.
+
+### Or by hand
 
 ```bash
 cp .env.example .env
-# Generate a secret and paste it into AUTH_SECRET:
+# Put a secret in AUTH_SECRET:
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 docker compose up --build
 ```
-
-Open <http://localhost:3000>. The first visit offers account creation; after
-that it is sign-in only.
-
-Migrations run automatically on container start.
 
 ### Local development
 
