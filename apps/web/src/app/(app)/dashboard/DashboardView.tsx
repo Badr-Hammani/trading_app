@@ -2,20 +2,35 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { TIMEFRAMES, allSessionOccurrences, type Timeframe } from '@xau/core';
-import { TradingChart } from '@/components/chart/TradingChart';
+import { TIMEFRAMES, DEFAULT_SESSIONS, allSessionOccurrences, type Timeframe, type TradingSignal } from '@xau/core';
+import { TradingChart, type TradeOverlay, type ChartMarker } from '@/components/chart/TradingChart';
 import { HeaderStrip } from '@/components/panels/HeaderStrip';
 import { BiasPanel } from '@/components/panels/BiasPanel';
 import { SetupStages, ExecutionStatus } from '@/components/panels/SetupStages';
 import { LiquidityPanel } from '@/components/panels/LiquidityPanel';
 import { FvgPanel } from '@/components/panels/FvgPanel';
 import { ChecklistPanel } from '@/components/panels/ChecklistPanel';
+import { SignalPanel } from '@/components/panels/SignalPanel';
 import { DataUnavailable, Panel, Spinner, Stat, Tag } from '@/components/ui/Panel';
 import { usePolling } from '@/lib/hooks';
 import { useAppStore } from '@/store/app';
 import { fmtCurrency, fmtNumber, fmtR, fmtTime } from '@/lib/format';
 import type { AnalysisResponse, CandlesResponse } from '@/lib/types';
 import clsx from 'clsx';
+
+interface TradeRecord {
+  id: string;
+  openedAt: string;
+  closedAt: string | null;
+  direction: string;
+  entry: number;
+  initialStop: number;
+  takeProfit1?: number | null;
+  takeProfit2?: number | null;
+  takeProfit3?: number | null;
+  resultR: number | null;
+  status: string;
+}
 
 interface TodayResponse {
   statistics: { trades: number; totalR: number; totalCurrency: number; winRate: number | null };
@@ -36,6 +51,7 @@ interface TodayResponse {
 export function DashboardView() {
   const { timeframe, setTimeframe, direction, setDirection, refreshMs } = useAppStore();
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
+  const [selectedTrade, setSelectedTrade] = useState<TradeOverlay | null>(null);
 
   const analysis = usePolling<AnalysisResponse>(
     `/api/analysis?timeframe=${timeframe}&limit=600`,
@@ -45,6 +61,8 @@ export function DashboardView() {
     `/api/market/candles?timeframe=${timeframe}&limit=600`,
     refreshMs,
   );
+  const signalsRes = usePolling<{ signals: TradingSignal[] }>('/api/signals', refreshMs);
+  const tradesRes = usePolling<{ trades: TradeRecord[] }>('/api/trades?limit=100', 30_000);
   const today = usePolling<TodayResponse>('/api/daily-plan', 60_000);
 
   const data = analysis.data;
@@ -59,15 +77,44 @@ export function DashboardView() {
   );
 
   const sessionOverlays = useMemo(() => {
-    if (series.length === 0 || !data?.session) return [];
-    const first = series[0]!.time;
-    const last = series[series.length - 1]!.time;
-    const definitions = data.session.active
-      .map((entry) => entry.definition)
-      .concat(data.session.next ? [data.session.next.definition] : []);
-    const unique = [...new Map(definitions.map((definition) => [definition.id, definition])).values()];
-    return allSessionOccurrences(unique, first, last + 86400);
-  }, [series, data?.session]);
+    if (series.length === 0) return [];
+    return allSessionOccurrences(DEFAULT_SESSIONS, series[0]!.time, series[series.length - 1]!.time + 86400, timezone);
+  }, [series, timezone]);
+
+  const tradeMarkers = useMemo(() => {
+    if (!tradesRes.data?.trades) return [];
+    const list: ChartMarker[] = [];
+    for (const t of tradesRes.data.trades) {
+      const openTime = Math.floor(new Date(t.openedAt).getTime() / 1000);
+      if (!Number.isNaN(openTime) && openTime > 0) {
+        const isLong = t.direction === 'long';
+        list.push({
+          time: openTime,
+          position: isLong ? 'belowBar' : 'aboveBar',
+          color: isLong ? '#22c55e' : '#ef4444',
+          shape: isLong ? 'arrowUp' : 'arrowDown',
+          text: `${isLong ? 'BUY' : 'SELL'} @ ${t.entry.toFixed(2)}`,
+        });
+      }
+      if (t.closedAt) {
+        const closeTime = Math.floor(new Date(t.closedAt).getTime() / 1000);
+        if (!Number.isNaN(closeTime) && closeTime > 0) {
+          const r = t.resultR ?? 0;
+          const win = r >= 0;
+          list.push({
+            time: closeTime,
+            position: t.direction === 'long' ? 'aboveBar' : 'belowBar',
+            color: win ? '#22c55e' : '#ef4444',
+            shape: 'circle',
+            text: `${win ? '+' : ''}${r.toFixed(1)}R`,
+          });
+        }
+      }
+    }
+    return list;
+  }, [tradesRes.data]);
+
+  const allMarkers = tradeMarkers;
 
   return (
     <div className="space-y-2 p-2">
@@ -170,17 +217,15 @@ export function DashboardView() {
                 candles={series}
                 timeframe={timeframe}
                 timezone={timezone}
-                fvgZones={data?.fvgZones ?? []}
+                fvgZones={(data?.fvgZones ?? []).filter((z) => z.status === 'fresh' || z.status === 'partially_mitigated')}
                 liquidity={data?.liquidity ?? []}
+                structureEvents={data?.structureEvents ?? []}
                 sessions={sessionOverlays}
+                trade={selectedTrade}
+                activeSetupFvgId={evaluation?.fvg?.id ?? null}
+                activeSetupLiquidityId={evaluation?.liquiditySweep?.levelId ?? null}
                 height={430}
-                markers={(data?.structureEvents ?? []).slice(-12).map((event) => ({
-                  time: event.time,
-                  position: event.direction === 'bullish' ? 'belowBar' : 'aboveBar',
-                  color: event.direction === 'bullish' ? '#22c55e' : '#ef4444',
-                  shape: event.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
-                  text: event.kind,
-                }))}
+                markers={allMarkers}
               />
             )}
           </Panel>
@@ -190,6 +235,22 @@ export function DashboardView() {
 
         {/* ------------------------------------------------------- right */}
         <div className="space-y-2">
+          <SignalPanel
+            signals={signalsRes.data?.signals ?? []}
+            price={data?.price ?? null}
+            timezone={timezone}
+            onSelectSignal={(signal) => {
+              setSelectedTrade({
+                direction: signal.direction,
+                entry: signal.entryPrice,
+                stopLoss: signal.stopLoss,
+                takeProfit1: signal.takeProfit1,
+                takeProfit2: signal.takeProfit2,
+                takeProfit3: signal.takeProfit3,
+                label: `${signal.type} ${signal.symbol}`,
+              });
+            }}
+          />
           <LiquidityPanel
             levels={data?.liquidity ?? []}
             price={data?.price ?? null}

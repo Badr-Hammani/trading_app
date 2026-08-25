@@ -22,6 +22,7 @@ export * from './indicators/liquidity.js';
 
 export * from './strategy-engine/types.js';
 export * from './strategy-engine/engine.js';
+export * from './strategy-engine/signals.js';
 export * from './strategy-engine/checklist.js';
 export * from './strategy-engine/entryModels.js';
 export * from './strategy-engine/news.js';

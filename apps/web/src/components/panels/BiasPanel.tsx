@@ -119,20 +119,13 @@ export function BiasPanel({
             </Tag>
           </div>
           <p className="mt-1 text-2xs leading-relaxed text-ink-400">{suggested.rationale}</p>
-          {suggestionEnabled ? (
-            <button
-              type="button"
-              className="btn btn-ghost mt-1.5 w-full"
-              onClick={() => void setBias('5M', suggested.bias)}
-            >
-              Apply to 5M structure
-            </button>
-          ) : (
-            <p className="mt-1 text-2xs text-ink-600">
-              Suggestions are read-only. Enable the experimental assistant in Settings to apply them
-              with one click.
-            </p>
-          )}
+          <button
+            type="button"
+            className="btn btn-ghost mt-1.5 w-full text-xs font-medium text-emerald-400 hover:bg-emerald-500/10 border border-emerald-500/30"
+            onClick={() => void setBias('5M', suggested.bias)}
+          >
+            ⚡ Apply {suggested.bias.toUpperCase()} to 5M structure
+          </button>
         </div>
       )}
     </Panel>

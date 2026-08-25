@@ -39,15 +39,17 @@ export function sessionOccurrences(
   definition: SessionDefinition,
   from: number,
   to: number,
+  _targetTimezone?: string,
 ): SessionOccurrence[] {
   if (!definition.enabled) return [];
 
+  const zone = definition.timezone;
   const first = DateTime.fromSeconds(from, { zone: 'utc' })
-    .setZone(definition.timezone)
+    .setZone(zone)
     .startOf('day')
     .minus({ days: 1 });
   const last = DateTime.fromSeconds(to, { zone: 'utc' })
-    .setZone(definition.timezone)
+    .setZone(zone)
     .startOf('day')
     .plus({ days: 1 });
 
@@ -65,9 +67,10 @@ export function allSessionOccurrences(
   definitions: SessionDefinition[],
   from: number,
   to: number,
+  targetTimezone?: string,
 ): SessionOccurrence[] {
   return definitions
-    .flatMap((definition) => sessionOccurrences(definition, from, to))
+    .flatMap((definition) => sessionOccurrences(definition, from, to, targetTimezone))
     .sort((a, b) => a.start - b.start);
 }
 

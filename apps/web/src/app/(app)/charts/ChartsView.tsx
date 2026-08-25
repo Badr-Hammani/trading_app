@@ -2,8 +2,8 @@
 
 import clsx from 'clsx';
 import { useMemo, useState } from 'react';
-import { TIMEFRAMES, allSessionOccurrences, type Timeframe } from '@xau/core';
-import { TradingChart, type TradeOverlay } from '@/components/chart/TradingChart';
+import { TIMEFRAMES, DEFAULT_SESSIONS, allSessionOccurrences, type Timeframe } from '@xau/core';
+import { TradingChart, type TradeOverlay, type ChartMarker } from '@/components/chart/TradingChart';
 import { LiquidityPanel } from '@/components/panels/LiquidityPanel';
 import { FvgPanel } from '@/components/panels/FvgPanel';
 import { DataUnavailable, Panel, Spinner, Tag } from '@/components/ui/Panel';
@@ -24,7 +24,9 @@ export function ChartsView() {
   const { timeframe, setTimeframe, refreshMs } = useAppStore();
   const [showFvg, setShowFvg] = useState(true);
   const [showLiquidity, setShowLiquidity] = useState(true);
+  const [intactOnly, setIntactOnly] = useState(true);
   const [showSessions, setShowSessions] = useState(true);
+  const [showTrades, setShowTrades] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [clicked, setClicked] = useState<{ price: number; time: number } | null>(null);
 
@@ -43,6 +45,17 @@ export function ChartsView() {
     `/api/market/candles?timeframe=${timeframe}&limit=1200`,
     refreshMs,
   );
+  const tradesRes = usePolling<{
+    trades: Array<{
+      id: string;
+      openedAt: string;
+      closedAt: string | null;
+      direction: string;
+      entry: number;
+      resultR: number | null;
+      status: string;
+    }>;
+  }>('/api/trades?limit=100', 30_000);
 
   // Memoised so the empty-array fallback does not produce a new reference on
   // every render, which would re-run the session-overlay computation.
@@ -53,14 +66,9 @@ export function ChartsView() {
   const timezone = analysis.data?.timezone ?? 'UTC';
 
   const sessions = useMemo(() => {
-    if (!showSessions || series.length === 0 || !analysis.data?.session) return [];
-    const definitions = [
-      ...analysis.data.session.active.map((entry) => entry.definition),
-      ...(analysis.data.session.next ? [analysis.data.session.next.definition] : []),
-    ];
-    const unique = [...new Map(definitions.map((definition) => [definition.id, definition])).values()];
-    return allSessionOccurrences(unique, series[0]!.time, series[series.length - 1]!.time + 86400);
-  }, [showSessions, series, analysis.data?.session]);
+    if (!showSessions || series.length === 0) return [];
+    return allSessionOccurrences(DEFAULT_SESSIONS, series[0]!.time, series[series.length - 1]!.time + 86400, timezone);
+  }, [showSessions, series, timezone]);
 
   const addLevel = useAction(async (type: string, price: number) => {
     await post('/api/liquidity', { type, price, timeframe, label: type });
@@ -94,18 +102,59 @@ export function ChartsView() {
     return Math.abs(target - overlay.entry) / risk;
   }, [overlay]);
 
+  const tradeMarkers = useMemo(() => {
+    if (!showTrades || !tradesRes.data?.trades) return [];
+    const list: Array<{
+      time: number;
+      position: 'aboveBar' | 'belowBar';
+      color: string;
+      shape: 'circle' | 'arrowUp' | 'arrowDown' | 'square';
+      text: string;
+    }> = [];
+    for (const t of tradesRes.data.trades) {
+      const openTime = Math.floor(new Date(t.openedAt).getTime() / 1000);
+      if (!Number.isNaN(openTime) && openTime > 0) {
+        const isLong = t.direction === 'long';
+        list.push({
+          time: openTime,
+          position: isLong ? 'belowBar' : 'aboveBar',
+          color: isLong ? '#22c55e' : '#ef4444',
+          shape: isLong ? 'arrowUp' : 'arrowDown',
+          text: `${isLong ? 'BUY' : 'SELL'} @ ${t.entry.toFixed(2)}`,
+        });
+      }
+      if (t.closedAt) {
+        const closeTime = Math.floor(new Date(t.closedAt).getTime() / 1000);
+        if (!Number.isNaN(closeTime) && closeTime > 0) {
+          const r = t.resultR ?? 0;
+          const win = r >= 0;
+          list.push({
+            time: closeTime,
+            position: t.direction === 'long' ? 'aboveBar' : 'belowBar',
+            color: win ? '#22c55e' : '#ef4444',
+            shape: 'circle',
+            text: `${win ? '+' : ''}${r.toFixed(1)}R`,
+          });
+        }
+      }
+    }
+    return list;
+  }, [showTrades, tradesRes.data]);
+
+  const allChartMarkers = tradeMarkers;
+
   return (
     <div className="grid grid-cols-1 gap-2 p-2 xl:grid-cols-[minmax(0,1fr)_minmax(300px,340px)]">
       <div className="space-y-2">
         <Panel
-          title={`XAUUSD · ${timeframe}`}
+          title={`${analysis.data?.symbol ?? 'XAUUSD'} · ${timeframe}`}
           subtitle={
             candles.data?.quality
-              ? `${candles.data.quality.bars} bars · ${candles.data.quality.gaps} gaps detected`
+              ? `${candles.data.quality.bars} bars · ${candles.data.quality.gaps} gaps`
               : undefined
           }
           actions={
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex gap-0.5">
               {TIMEFRAMES.map((option) => (
                 <button
                   key={option}
@@ -113,7 +162,9 @@ export function ChartsView() {
                   onClick={() => setTimeframe(option as Timeframe)}
                   className={clsx(
                     'rounded px-1.5 py-0.5 text-2xs font-medium',
-                    timeframe === option ? 'bg-accent/20 text-accent' : 'text-ink-500 hover:bg-ink-800',
+                    timeframe === option
+                      ? 'bg-accent/20 text-accent'
+                      : 'text-ink-500 hover:bg-ink-800 hover:text-ink-200',
                   )}
                 >
                   {option}
@@ -139,20 +190,23 @@ export function ChartsView() {
               candles={series}
               timeframe={timeframe}
               timezone={timezone}
-              fvgZones={showFvg ? (analysis.data?.fvgZones ?? []) : []}
-              liquidity={showLiquidity ? (analysis.data?.liquidity ?? []) : []}
+              fvgZones={
+                showFvg
+                  ? (analysis.data?.fvgZones ?? []).filter((z) => !intactOnly || z.status === 'fresh' || z.status === 'partially_mitigated')
+                  : []
+              }
+              liquidity={
+                showLiquidity
+                  ? (analysis.data?.liquidity ?? []).filter((l) => !intactOnly || l.status === 'intact')
+                  : []
+              }
+              structureEvents={analysis.data?.structureEvents ?? []}
               sessions={sessions}
               trade={overlay}
               showVolume={showVolume}
               height={560}
               onPriceClick={(price, time) => setClicked({ price, time })}
-              markers={(analysis.data?.swings ?? []).slice(-24).map((swing) => ({
-                time: swing.time,
-                position: swing.type === 'high' ? 'aboveBar' : 'belowBar',
-                color: swing.type === 'high' ? '#ef4444' : '#22c55e',
-                shape: 'circle',
-                text: swing.label ?? '',
-              }))}
+              markers={allChartMarkers}
             />
           )}
         </Panel>
@@ -160,7 +214,9 @@ export function ChartsView() {
         <Panel title="Layers" bodyClassName="flex flex-wrap gap-3">
           <Toggle label="FVG zones" checked={showFvg} onChange={setShowFvg} />
           <Toggle label="Liquidity" checked={showLiquidity} onChange={setShowLiquidity} />
+          <Toggle label="Intact levels only" checked={intactOnly} onChange={setIntactOnly} />
           <Toggle label="Session overlays" checked={showSessions} onChange={setShowSessions} />
+          <Toggle label="Trade history" checked={showTrades} onChange={setShowTrades} />
           <Toggle label="Volume" checked={showVolume} onChange={setShowVolume} />
         </Panel>
       </div>

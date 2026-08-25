@@ -28,15 +28,30 @@ export async function GET() {
       orderBy: { price: 'desc' },
     });
 
-    // Re-classify against current candles so sweeps stay current without the
-    // trader having to press anything.
     const candles = await loadCandles(context, '5M', 800);
+    const at = Math.floor(Date.now() / 1000);
+
+    const manualLevels = rows.filter((r) => r.manual).map(rowToLiquidity);
+    const derived =
+      candles.status === 'ok'
+        ? [
+            ...derivePeriodLevels(candles.data.candles, '5M', at, context.timezone),
+            ...deriveSessionLevels(candles.data.candles, '5M', at, context.sessions),
+            ...deriveEqualLevels(
+              detectSwings(candles.data.candles, '5M', SWING_PRESETS[context.rules.sensitivity]),
+              candles.data.candles,
+              '5M',
+            ),
+          ]
+        : [];
+
+    const allLevels = [...derived, ...manualLevels];
     const evaluated =
       candles.status === 'ok'
-        ? evaluateLiquidity(rows.map(rowToLiquidity), candles.data.candles)
-        : rows.map(rowToLiquidity);
+        ? evaluateLiquidity(allLevels, candles.data.candles)
+        : allLevels;
 
-    // Persist any newly detected sweep/break so the journal can reference it.
+    // Persist any newly detected sweep/break for manual levels so the journal can reference it.
     for (const level of evaluated) {
       const original = rows.find((row) => row.id === level.id);
       if (!original || original.status === level.status) continue;

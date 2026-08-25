@@ -91,12 +91,20 @@ export interface StrategyRules {
   maxRiskPercent: number;
   /** Bars after the structure break within which the entry must occur. */
   maxBarsFromStructureBreak: number;
+  /** Maximum distance between current price and FVG, as a multiple of ATR. Default 3.0. */
+  maxFvgDistanceAtr: number;
+  /** Maximum age of FVG in bars since creation. Default 30. */
+  maxFvgAgeBars: number;
+  /** Invalidate setup if an opposing structure event (BOS/CHoCH) occurs after the setup break. Default true. */
+  invalidateOnOpposingStructure: boolean;
+  /** Invalidate setup if the originating/protected swing is broken. Default true. */
+  requireOriginatingSwingIntact: boolean;
 }
 
 export const DEFAULT_STRATEGY_RULES: StrategyRules = {
   minDisplacementScore: 60,
   requireChoch: false,
-  requireFvgAfterStructure: true,
+  requireFvgAfterStructure: false,
   maxFvgMitigation: 0.9,
   sensitivity: 'balanced',
   enforceSessionFilter: true,
@@ -104,6 +112,10 @@ export const DEFAULT_STRATEGY_RULES: StrategyRules = {
   newsWindowMinutes: 30,
   maxRiskPercent: 1,
   maxBarsFromStructureBreak: 24,
+  maxFvgDistanceAtr: 3.0,
+  maxFvgAgeBars: 30,
+  invalidateOnOpposingStructure: true,
+  requireOriginatingSwingIntact: true,
 };
 
 export interface StrategyVersion {

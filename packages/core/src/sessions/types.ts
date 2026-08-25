@@ -61,8 +61,8 @@ export const DEFAULT_SESSIONS: SessionDefinition[] = [
     name: 'Asian',
     kind: 'asian',
     timezone: 'Asia/Tokyo',
-    startMinutes: 9 * 60,
-    endMinutes: 15 * 60,
+    startMinutes: 9 * 60, // 09:00 Tokyo (00:00 UTC)
+    endMinutes: 18 * 60, // 18:00 Tokyo (09:00 UTC)
     days: WEEKDAYS_MON_FRI,
     tradingPermitted: false,
     enabled: true,
@@ -73,8 +73,8 @@ export const DEFAULT_SESSIONS: SessionDefinition[] = [
     name: 'London',
     kind: 'london',
     timezone: 'Europe/London',
-    startMinutes: 8 * 60,
-    endMinutes: 16 * 60 + 30,
+    startMinutes: 8 * 60, // 08:00 London (08:00 UTC)
+    endMinutes: 16 * 60 + 30, // 16:30 London (16:30 UTC)
     days: WEEKDAYS_MON_FRI,
     tradingPermitted: true,
     enabled: true,
@@ -85,8 +85,8 @@ export const DEFAULT_SESSIONS: SessionDefinition[] = [
     name: 'New York',
     kind: 'newyork',
     timezone: 'America/New_York',
-    startMinutes: 8 * 60 + 30,
-    endMinutes: 17 * 60,
+    startMinutes: 8 * 60, // 08:00 New York (13:00 UTC)
+    endMinutes: 17 * 60, // 17:00 New York (22:00 UTC)
     days: WEEKDAYS_MON_FRI,
     tradingPermitted: true,
     enabled: true,
@@ -97,8 +97,8 @@ export const DEFAULT_SESSIONS: SessionDefinition[] = [
     name: 'London / NY Overlap',
     kind: 'overlap',
     timezone: 'America/New_York',
-    startMinutes: 8 * 60 + 30,
-    endMinutes: 11 * 60 + 30,
+    startMinutes: 8 * 60, // 08:00 New York (13:00 UTC)
+    endMinutes: 12 * 60, // 12:00 New York (17:00 UTC)
     days: WEEKDAYS_MON_FRI,
     tradingPermitted: true,
     enabled: true,

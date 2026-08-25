@@ -4,6 +4,8 @@ import type { BrokerProvider, EconomicDataProvider, MarketDataProvider, NewsProv
 import { NullMarketDataProvider } from './market/nullMarket.js';
 import { OandaMarketDataProvider } from './market/oanda.js';
 import { AlphaVantageMarketDataProvider } from './market/alphaVantage.js';
+import { TwelveDataMarketDataProvider } from './market/twelveData.js';
+import { RealtimeGoldMarketDataProvider } from './market/realtimeGold.js';
 import { FallbackMarketDataProvider, LocalSeriesProvider, type LocalSeriesLoader } from './market/localSeries.js';
 import { TradingEconomicsProvider } from './economic/tradingEconomics.js';
 import { FredProvider } from './economic/fred.js';
@@ -30,6 +32,7 @@ export interface ProviderEnv {
   TRADING_ECONOMICS_API_KEY?: string;
   FRED_API_KEY?: string;
   ALPHA_VANTAGE_API_KEY?: string;
+  TWELVE_DATA_API_KEY?: string;
   OANDA_API_KEY?: string;
   OANDA_ACCOUNT_ID?: string;
   OANDA_ENVIRONMENT?: string;
@@ -51,6 +54,8 @@ export function buildMarketDataProvider(options: RegistryOptions): MarketDataPro
 
   const preferred = env.MARKET_DATA_PROVIDER?.toLowerCase();
 
+  const realtimeGold = preferred === 'realtime-gold' ? new RealtimeGoldMarketDataProvider() : null;
+
   const oanda =
     env.OANDA_API_KEY && env.OANDA_ACCOUNT_ID
       ? new OandaMarketDataProvider({
@@ -60,13 +65,26 @@ export function buildMarketDataProvider(options: RegistryOptions): MarketDataPro
         })
       : null;
 
+  const twelveKey = env.TWELVE_DATA_API_KEY;
+  const twelveData = twelveKey ? new TwelveDataMarketDataProvider({ apiKey: twelveKey }) : null;
+
   const alphaKey = env.ALPHA_VANTAGE_API_KEY ?? env.MARKET_DATA_API_KEY;
   const alphaVantage = alphaKey ? new AlphaVantageMarketDataProvider({ apiKey: alphaKey }) : null;
 
   // An explicit preference goes first; the remaining configured providers stay
   // in the chain as fallbacks so one outage does not blank the dashboard.
-  const ordered: (MarketDataProvider | null)[] =
-    preferred === 'alpha-vantage' ? [alphaVantage, oanda] : [oanda, alphaVantage];
+  let ordered: (MarketDataProvider | null)[];
+  if (preferred === 'realtime-gold') {
+    ordered = [realtimeGold, twelveData, oanda, alphaVantage];
+  } else if (preferred === 'twelve-data') {
+    ordered = [twelveData, oanda, alphaVantage];
+  } else if (preferred === 'oanda') {
+    ordered = [oanda, twelveData, alphaVantage];
+  } else if (preferred === 'alpha-vantage') {
+    ordered = [alphaVantage, twelveData, oanda];
+  } else {
+    ordered = [oanda, twelveData, alphaVantage];
+  }
 
   for (const provider of ordered) if (provider) chain.push(provider);
 
@@ -118,6 +136,13 @@ export function buildProviders(options: RegistryOptions): ProviderBundle {
 /** Provider status for the Settings page, with no secrets included. */
 export function describeProviders(env: ProviderEnv): ProviderInfo[] {
   return [
+    {
+      id: 'twelve-data',
+      name: 'Twelve Data (market data)',
+      configured: Boolean(env.TWELVE_DATA_API_KEY),
+      website: 'https://twelvedata.com/',
+      setupHint: 'TWELVE_DATA_API_KEY',
+    },
     {
       id: 'oanda',
       name: 'OANDA v20 (market data)',

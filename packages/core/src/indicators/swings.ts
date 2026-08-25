@@ -74,6 +74,44 @@ function isPivotLow(candles: Candle[], index: number, lookback: number): boolean
  * printed after it — the returned points are therefore never based on
  * information unavailable at the time, which matters for replay.
  */
+function isPivotHighAdaptive(candles: Candle[], index: number, lookback: number): boolean {
+  const pivot = candles[index];
+  if (!pivot) return false;
+  const rightAvailable = Math.min(lookback, candles.length - 1 - index);
+  if (rightAvailable < 1) return false;
+
+  for (let offset = 1; offset <= lookback; offset += 1) {
+    const left = candles[index - offset];
+    if (!left || left.high > pivot.high) return false;
+  }
+  for (let offset = 1; offset <= rightAvailable; offset += 1) {
+    const right = candles[index + offset];
+    if (!right || right.high >= pivot.high) return false;
+  }
+  return true;
+}
+
+function isPivotLowAdaptive(candles: Candle[], index: number, lookback: number): boolean {
+  const pivot = candles[index];
+  if (!pivot) return false;
+  const rightAvailable = Math.min(lookback, candles.length - 1 - index);
+  if (rightAvailable < 1) return false;
+
+  for (let offset = 1; offset <= lookback; offset += 1) {
+    const left = candles[index - offset];
+    if (!left || left.low < pivot.low) return false;
+  }
+  for (let offset = 1; offset <= rightAvailable; offset += 1) {
+    const right = candles[index + offset];
+    if (!right || right.low <= pivot.low) return false;
+  }
+  return true;
+}
+
+/**
+ * Detect swing points. A swing is confirmed once `lookback` bars have
+ * printed after it (or adaptively for recent bars).
+ */
 export function detectSwings(
   candles: Candle[],
   timeframe: Timeframe,
@@ -82,12 +120,12 @@ export function detectSwings(
   const { lookback, minAtrMultiple, atrPeriod } = config;
   const swings: SwingPoint[] = [];
 
-  for (let index = lookback; index < candles.length - lookback; index += 1) {
+  for (let index = lookback; index < candles.length - 1; index += 1) {
     const candle = candles[index];
     if (!candle) continue;
 
-    const high = isPivotHigh(candles, index, lookback);
-    const low = isPivotLow(candles, index, lookback);
+    const high = isPivotHighAdaptive(candles, index, lookback);
+    const low = isPivotLowAdaptive(candles, index, lookback);
     if (!high && !low) continue;
 
     const type = high ? 'high' : 'low';

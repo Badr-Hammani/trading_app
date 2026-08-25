@@ -151,10 +151,10 @@ export function detectStructureEvents(
  * postpone confirmation indefinitely.
  */
 function confirmationLagFor(swings: SwingPoint[], cursor: number): number {
-  const swing = swings[cursor]!;
-  const next = swings[cursor + 1];
-  if (!next) return 1;
-  return Math.min(Math.max(1, next.index - swing.index), 10);
+  const swing = swings[cursor];
+  if (!swing) return 3;
+  // Deterministic confirmation lag without looking forward to future swings
+  return 3;
 }
 
 /**

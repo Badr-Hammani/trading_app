@@ -59,6 +59,7 @@ export function usePolling<T>(
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
+    setNow(Math.floor(Date.now() / 1000));
     const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), intervalMs);
     return () => clearInterval(timer);
   }, [intervalMs]);

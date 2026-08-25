@@ -17,12 +17,16 @@ export async function GET(request: Request) {
 
     const context = await loadUserContext(user.id);
     const limit = searchNumber(url, 'limit') ?? 500;
+    const providerParam = searchString(url, 'provider');
+    const preferLocal = providerParam === 'local' || providerParam === 'csv';
+
     const result = await loadCandles(
       context,
       timeframe,
       limit,
       searchNumber(url, 'from'),
       searchNumber(url, 'to'),
+      preferLocal,
     );
 
     if (result.status !== 'ok') return json({ result, quality: null });

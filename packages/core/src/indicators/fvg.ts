@@ -65,8 +65,8 @@ export interface FvgConfig {
 }
 
 export const DEFAULT_FVG_CONFIG: FvgConfig = {
-  minRelativeSize: 0.1,
-  minAbsoluteSize: 0,
+  minRelativeSize: 0.15,
+  minAbsoluteSize: 0.3,
   invalidateOnClose: true,
   averagePeriod: 20,
 };
@@ -322,4 +322,56 @@ export function scoreFvgQuality(
   }
 
   return { score: Math.max(0, Math.min(100, score)), reasons };
+}
+
+/**
+ * Filter out fully mitigated, invalidated, or micro noise gaps.
+ */
+export function filterCleanFvgs(
+  zones: FvgZone[],
+  options: { maxMitigation?: number; minSize?: number } = {},
+): FvgZone[] {
+  const maxMitigation = options.maxMitigation ?? 0.75;
+  const minSize = options.minSize ?? 0.3;
+
+  return zones.filter((zone) => {
+    if (zone.status === 'fully_mitigated' || zone.status === 'invalidated') return false;
+    if (zone.mitigation >= maxMitigation) return false;
+    if (zone.size < minSize) return false;
+    return true;
+  });
+}
+
+/**
+ * Consolidate contiguous or overlapping unmitigated FVG zones in the same direction.
+ * Reduces multiple 0.5-point boxes into 1 clean Fair Value Zone.
+ */
+export function consolidateFvgZones(zones: FvgZone[]): FvgZone[] {
+  if (zones.length <= 1) return zones;
+
+  const result: FvgZone[] = [];
+  const sorted = [...zones].sort((a, b) => a.low - b.low);
+
+  for (const zone of sorted) {
+    if (result.length === 0) {
+      result.push({ ...zone });
+      continue;
+    }
+
+    const prev = result[result.length - 1]!;
+    if (prev.direction === zone.direction && zone.low <= prev.high + 0.1 && zone.high >= prev.low - 0.1) {
+      prev.high = Math.max(prev.high, zone.high);
+      prev.low = Math.min(prev.low, zone.low);
+      prev.midpoint = (prev.high + prev.low) / 2;
+      prev.size = prev.high - prev.low;
+      prev.mitigation = Math.min(prev.mitigation, zone.mitigation);
+      if (prev.status === 'fresh' || zone.status === 'fresh') {
+        prev.status = 'fresh';
+      }
+    } else {
+      result.push({ ...zone });
+    }
+  }
+
+  return result;
 }

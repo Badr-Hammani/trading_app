@@ -33,37 +33,86 @@ export function ReplayView() {
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load the whole window once. The cursor, not the fetch, controls visibility.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void (async () => {
+  const [selectedDate, setSelectedDate] = useState<string>('');
+
+  // Load a window of historical candles around a target timestamp.
+  const loadWindow = useCallback(
+    async (targetTime?: number) => {
+      setLoading(true);
       try {
-        const payload = await get<CandlesResponse>(
-          `/api/market/candles?timeframe=${timeframe}&limit=5000`,
-        );
-        if (cancelled) return;
+        let query = `/api/market/candles?timeframe=${timeframe}&provider=local&limit=3000`;
+        if (targetTime) {
+          // Step seconds for 5M vs 15M
+          const step = (timeframe === '15M' ? 15 : 5) * 60;
+          const fromTime = Math.max(0, targetTime - 200 * step);
+          query += `&from=${fromTime}`;
+        } else {
+          // Initial load: start from beginning of dataset (from=0 ascending)
+          query += `&from=0`;
+        }
+
+        const payload = await get<CandlesResponse>(query);
         if (payload.result.status !== 'ok') {
           setError(payload.result.message);
           setAll([]);
         } else {
-          setAll(payload.result.data.candles);
-          setCursor(Math.min(120, payload.result.data.candles.length - 1));
+          const candles = payload.result.data.candles;
+          setAll(candles);
           setError(null);
+
+          if (targetTime && candles.length > 0) {
+            const idx = candles.findIndex((c) => c.time >= targetTime);
+            setCursor(idx !== -1 ? idx : Math.min(100, candles.length - 1));
+          } else {
+            setCursor(Math.min(100, candles.length - 1));
+          }
         }
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Failed to load candles.');
+        setError(caught instanceof Error ? caught.message : 'Failed to load candles.');
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
+    },
+    [timeframe],
+  );
+
+  // Initial load and timeframe change
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!cancelled) await loadWindow();
     })();
     return () => {
       cancelled = true;
     };
-  }, [timeframe]);
+  }, [timeframe, loadWindow]);
 
   const visible = useMemo(() => all.slice(0, cursor + 1), [all, cursor]);
   const current = visible[visible.length - 1] ?? null;
+
+  // Auto-page next block when playback/cursor reaches end of loaded chunk
+  useEffect(() => {
+    if (cursor > 0 && cursor >= all.length - 30 && all.length > 0) {
+      const lastTime = all[all.length - 1]!.time;
+      void (async () => {
+        try {
+          const nextPayload = await get<CandlesResponse>(
+            `/api/market/candles?timeframe=${timeframe}&provider=local&from=${lastTime + 1}&limit=2000`,
+          );
+          if (nextPayload.result.status === 'ok' && nextPayload.result.data.candles.length > 0) {
+            const newCandles = nextPayload.result.data.candles;
+            setAll((prev) => {
+              const existingTimes = new Set(prev.map((c) => c.time));
+              const filtered = newCandles.filter((c) => !existingTimes.has(c.time));
+              return [...prev, ...filtered];
+            });
+          }
+        } catch {
+          // Silence background pagination errors
+        }
+      })();
+    }
+  }, [cursor, all, timeframe]);
 
   // Re-evaluate the model at the cursor time.
   const evaluate = useCallback(async () => {
@@ -221,12 +270,14 @@ export function ReplayView() {
           <input
             type="date"
             className="input w-auto"
+            value={selectedDate}
             onChange={(event) => {
-              const target = DateTime.fromISO(event.target.value, { zone: timezone });
+              const val = event.target.value;
+              setSelectedDate(val);
+              const target = DateTime.fromISO(val, { zone: 'utc' });
               if (!target.isValid) return;
               const seconds = Math.floor(target.toSeconds());
-              const index = all.findIndex((candle) => candle.time >= seconds);
-              setCursor(index === -1 ? all.length - 1 : index);
+              void loadWindow(seconds);
             }}
           />
           <Tag tone="accent">Future candles are not loaded into the chart at any point</Tag>
@@ -242,6 +293,8 @@ export function ReplayView() {
               timezone={timezone}
               fvgZones={analysis?.fvgZones ?? []}
               liquidity={analysis?.liquidity ?? []}
+              activeSetupFvgId={evaluation?.fvg?.id ?? null}
+              activeSetupLiquidityId={evaluation?.liquiditySweep?.levelId ?? null}
               height={480}
             />
           </Panel>

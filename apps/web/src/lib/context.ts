@@ -7,7 +7,7 @@ import {
   type StrategyRules,
   type Timeframe,
 } from '@xau/core';
-import { buildProviders, type ProviderBundle } from '@xau/providers';
+import { buildProviders, LocalSeriesProvider, type ProviderBundle } from '@xau/providers';
 import { prisma } from './db';
 import { env, providerEnv } from './env';
 import { rowToEvent, rowsToCandles, toEpoch } from './serialize';
@@ -80,6 +80,10 @@ export async function loadUserContext(userId: string): Promise<UserContext> {
         newsWindowMinutes: settings.newsWindowMinutes,
         maxRiskPercent: settings.maxRiskPercent,
         maxBarsFromStructureBreak: settings.maxBarsFromStructureBreak,
+        maxFvgDistanceAtr: DEFAULT_STRATEGY_RULES.maxFvgDistanceAtr,
+        maxFvgAgeBars: DEFAULT_STRATEGY_RULES.maxFvgAgeBars,
+        invalidateOnOpposingStructure: DEFAULT_STRATEGY_RULES.invalidateOnOpposingStructure,
+        requireOriginatingSwingIntact: DEFAULT_STRATEGY_RULES.requireOriginatingSwingIntact,
       }
     : DEFAULT_STRATEGY_RULES;
 
@@ -110,6 +114,11 @@ export async function loadUserContext(userId: string): Promise<UserContext> {
       });
       if (!series) return null;
 
+      // If `from` is provided, query ascending starting from `from`.
+      // If `to` is provided without `from`, query descending leading up to `to`.
+      // If neither is provided, query descending to get the most recent bars.
+      const isAscending = Boolean(from);
+
       const rows = await prisma.marketCandle.findMany({
         where: {
           seriesId: series.id,
@@ -122,12 +131,12 @@ export async function loadUserContext(userId: string): Promise<UserContext> {
               }
             : {}),
         },
-        orderBy: { time: 'desc' },
+        orderBy: { time: isAscending ? 'asc' : 'desc' },
         take: limit ?? 1500,
       });
 
       return {
-        candles: rowsToCandles(rows.reverse()),
+        candles: rowsToCandles(isAscending ? rows : rows.reverse()),
         importedFrom: series.importedFrom,
       };
     },
@@ -162,7 +171,7 @@ export async function loadUserContext(userId: string): Promise<UserContext> {
       defaultRiskPercent: settings?.defaultRiskPercent ?? 0.5,
       maxRiskPercent: settings?.maxRiskPercent ?? 1,
       aiAssistantEnabled: settings?.aiAssistantEnabled ?? true,
-      aiBiasSuggestionEnabled: settings?.aiBiasSuggestionEnabled ?? false,
+      aiBiasSuggestionEnabled: settings?.aiBiasSuggestionEnabled ?? true,
       browserNotifications: settings?.browserNotifications ?? false,
       telegramEnabled: settings?.telegramEnabled ?? false,
       emailAlertsEnabled: settings?.emailAlertsEnabled ?? false,
@@ -170,14 +179,56 @@ export async function loadUserContext(userId: string): Promise<UserContext> {
   };
 }
 
-/** Candles for a timeframe, from the provider chain (live first, imported last). */
+/** Candles for a timeframe, from the provider chain (live first, imported last, or preferLocal for Replay). */
 export async function loadCandles(
   context: UserContext,
   timeframe: Timeframe,
   limit = 500,
   from?: number,
   to?: number,
+  preferLocal = false,
 ) {
+  if (preferLocal) {
+    const localLoader = async (sym: string, tf: Timeframe, f?: number, t?: number, l?: number) => {
+      const series = await prisma.marketDataSeries.findFirst({
+        where: { symbol: sym, timeframe: tf, OR: [{ userId: context.userId }, { userId: null }] },
+        orderBy: { lastTime: 'desc' },
+      });
+      if (!series) return null;
+
+      const isAscending = Boolean(f);
+      const rows = await prisma.marketCandle.findMany({
+        where: {
+          seriesId: series.id,
+          ...(f || t
+            ? {
+                time: {
+                  ...(f ? { gte: new Date(f * 1000) } : {}),
+                  ...(t ? { lte: new Date(t * 1000) } : {}),
+                },
+              }
+            : {}),
+        },
+        orderBy: { time: isAscending ? 'asc' : 'desc' },
+        take: l ?? limit,
+      });
+
+      return {
+        candles: rowsToCandles(isAscending ? rows : rows.reverse()),
+        importedFrom: series.importedFrom,
+      };
+    };
+
+    const localProvider = new LocalSeriesProvider(localLoader);
+    return localProvider.getCandles({
+      symbol: context.symbol,
+      timeframe,
+      limit,
+      from,
+      to,
+    });
+  }
+
   return context.providers.marketData.getCandles({
     symbol: context.symbol,
     timeframe,

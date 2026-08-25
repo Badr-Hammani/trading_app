@@ -19,6 +19,7 @@ export const env = {
   oandaAccountId: process.env.OANDA_ACCOUNT_ID,
   oandaEnvironment: process.env.OANDA_ENVIRONMENT,
   alphaVantageApiKey: process.env.ALPHA_VANTAGE_API_KEY,
+  twelveDataApiKey: process.env.TWELVE_DATA_API_KEY,
   tradingEconomicsApiKey: process.env.TRADING_ECONOMICS_API_KEY,
   fredApiKey: process.env.FRED_API_KEY,
 
@@ -36,6 +37,7 @@ export function providerEnv() {
     TRADING_ECONOMICS_API_KEY: env.tradingEconomicsApiKey,
     FRED_API_KEY: env.fredApiKey,
     ALPHA_VANTAGE_API_KEY: env.alphaVantageApiKey,
+    TWELVE_DATA_API_KEY: env.twelveDataApiKey,
     OANDA_API_KEY: env.oandaApiKey,
     OANDA_ACCOUNT_ID: env.oandaAccountId,
     OANDA_ENVIRONMENT: env.oandaEnvironment,

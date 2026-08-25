@@ -493,6 +493,7 @@ model Trade {
 
   @@index([userId, openedAt])
   @@index([userId, status])
+  @@index([userId, status, openedAt(sort: Desc)])
 }
 
 model TradeExecution {

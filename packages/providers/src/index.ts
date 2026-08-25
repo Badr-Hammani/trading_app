@@ -14,6 +14,8 @@ export * from './cache.js';
 export * from './market/nullMarket.js';
 export * from './market/oanda.js';
 export * from './market/alphaVantage.js';
+export * from './market/twelveData.js';
+export * from './market/realtimeGold.js';
 export * from './market/localSeries.js';
 
 export * from './economic/tradingEconomics.js';

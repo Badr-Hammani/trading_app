@@ -344,3 +344,52 @@ export function nearestLiquidity(
     Math.abs(level.price - price) < Math.abs(closest.price - price) ? level : closest,
   );
 }
+
+/**
+ * Cluster and deduplicate levels that lie within a price tolerance (default 1.0 point on Gold).
+ * Prevents stacked labels like 4678.58 and 4677.05 from cluttering the price scale!
+ */
+export function deduplicateLevels(
+  levels: LiquidityLevel[],
+  priceTolerance: number = 1.0,
+): LiquidityLevel[] {
+  if (levels.length <= 1) return levels;
+
+  const intact = levels.filter((l) => l.status === 'intact');
+  const other = levels.filter((l) => l.status !== 'intact');
+
+  const deduplicated: LiquidityLevel[] = [];
+  const sorted = [...intact].sort((a, b) => b.price - a.price);
+
+  for (const level of sorted) {
+    const existing = deduplicated.find(
+      (item) => Math.abs(item.price - level.price) <= priceTolerance && item.side === level.side,
+    );
+    if (existing) {
+      if (!existing.label.includes(level.type)) {
+        existing.label = `${existing.label} / ${level.label}`;
+      }
+    } else {
+      deduplicated.push({ ...level });
+    }
+  }
+
+  return [...deduplicated, ...other];
+}
+
+/**
+ * Filter key levels for clean chart view: intact HTF/Session/Equal levels within distance threshold.
+ */
+export function filterCleanLevels(
+  levels: LiquidityLevel[],
+  currentPrice?: number,
+  maxLevels: number = 12,
+): LiquidityLevel[] {
+  const intact = levels.filter((l) => l.status === 'intact');
+
+  if (currentPrice && currentPrice > 0) {
+    intact.sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice));
+  }
+
+  return deduplicateLevels(intact.slice(0, maxLevels), 0.8);
+}

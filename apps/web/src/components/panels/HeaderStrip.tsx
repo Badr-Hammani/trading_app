@@ -96,7 +96,7 @@ export function HeaderStrip({
         >
           {(data?.market ?? 'unknown').toUpperCase()}
         </div>
-        <div className="mt-0.5 num text-2xs text-ink-500">
+        <div className="mt-0.5 num text-2xs text-ink-500" suppressHydrationWarning>
           {fmtTime(now, timezone, 'ccc dd LLL HH:mm:ss')}
         </div>
       </Cell>

@@ -23,8 +23,17 @@ export async function GET(request: Request) {
 
     const context = await loadUserContext(user.id);
     const at = searchNumber(url, 'at') ?? Math.floor(Date.now() / 1000);
+    const providerParam = searchString(url, 'provider');
+    const isHistoricalAt = searchNumber(url, 'at') !== undefined || providerParam === 'local' || providerParam === 'csv';
 
-    const candlesResult = await loadCandles(context, timeframe, searchNumber(url, 'limit') ?? 600);
+    const candlesResult = await loadCandles(
+      context,
+      timeframe,
+      searchNumber(url, 'limit') ?? 600,
+      undefined,
+      isHistoricalAt ? at : undefined,
+      isHistoricalAt,
+    );
     if (candlesResult.status !== 'ok') {
       return json({ dataAvailable: false, candles: candlesResult, timezone: context.timezone });
     }
@@ -52,7 +61,7 @@ export async function GET(request: Request) {
       candles,
       timeframe,
       at,
-      manualLevels: levelRows.map(rowToLiquidity),
+      manualLevels: levelRows.filter((r) => r.manual).map(rowToLiquidity),
       events: eventRows.map(rowToEvent),
       bias,
     });

@@ -4,6 +4,7 @@ import type { FvgZone } from '../indicators/fvg.js';
 import { fvgStatusAt, scoreFvgQuality } from '../indicators/fvg.js';
 import type { StructureEvent } from '../indicators/structure.js';
 import type { DisplacementReading } from '../indicators/displacement.js';
+import { atrAt, averageRange } from '../indicators/atr.js';
 import type { SessionDefinition } from '../sessions/types.js';
 import { activeSessions, sessionLabelAt } from '../sessions/engine.js';
 import {
@@ -59,11 +60,27 @@ const NO_NEWS: NewsRisk = {
   message: 'No economic calendar data loaded.',
 };
 
+/** Calculate distance from current price to the FVG boundary in price units. */
+export function calculateFvgDistance(price: number, zone: FvgZone, direction: Direction): number {
+  if (direction === 'long') {
+    if (price > zone.high) return price - zone.high;
+    if (price < zone.low) return zone.low - price;
+    return 0;
+  } else {
+    if (price < zone.low) return zone.low - price;
+    if (price > zone.high) return price - zone.high;
+    return 0;
+  }
+}
+
 export function evaluateSetup(input: EvaluateSetupInput): SetupEvaluation {
   const rules = input.rules ?? DEFAULT_STRATEGY_RULES;
   const news = input.news ?? NO_NEWS;
   const bullish = input.direction === 'long';
   const currentIndex = input.candles.length - 1;
+  const atr = (currentIndex >= 0
+    ? atrAt(input.candles, currentIndex, 14) ?? averageRange(input.candles, currentIndex, 14)
+    : null) ?? 1.0;
 
   const stages = {} as Record<SetupStage, StageResult>;
   for (const stage of SETUP_STAGES) {
@@ -178,9 +195,61 @@ export function evaluateSetup(input: EvaluateSetupInput): SetupEvaluation {
     .filter((event) => event.review !== 'rejected')
     .filter((event) => event.time <= input.at && event.time >= structureAfter)
     .sort((a, b) => b.time - a.time);
-  const structureBreak = breaks.find((event) => !rules.requireChoch || event.kind === 'CHoCH') ?? null;
+  let structureBreak = breaks.find((event) => !rules.requireChoch || event.kind === 'CHoCH') ?? null;
+
+  let structureInvalidated = false;
+  let structureInvalidationReason: string | null = null;
 
   if (structureBreak) {
+    // Check 1: Setup age / expiration
+    const barsSinceBreak = currentIndex - structureBreak.index;
+    if (rules.maxBarsFromStructureBreak > 0 && barsSinceBreak > rules.maxBarsFromStructureBreak) {
+      structureInvalidated = true;
+      structureInvalidationReason = `Setup expired: ${barsSinceBreak} bars since structure break (max ${rules.maxBarsFromStructureBreak}).`;
+    }
+
+    // Check 2: Opposing structure break occurring AFTER the setup structure break
+    if (!structureInvalidated && rules.invalidateOnOpposingStructure) {
+      const opposingDirection = bullish ? 'bearish' : 'bullish';
+      const opposingBreaks = input.structureEvents.filter(
+        (event) =>
+          event.direction === opposingDirection &&
+          event.review !== 'rejected' &&
+          event.time <= input.at &&
+          event.time >= structureBreak!.time,
+      );
+      if (opposingBreaks.length > 0) {
+        const latestOpposing = opposingBreaks.sort((a, b) => b.time - a.time)[0]!;
+        structureInvalidated = true;
+        structureInvalidationReason = `Invalidated by opposing ${latestOpposing.direction} ${latestOpposing.kind} at ${latestOpposing.brokenLevel.toFixed(2)}.`;
+      }
+    }
+
+    // Check 3: Originating / protected swing invalidation
+    if (!structureInvalidated && rules.requireOriginatingSwingIntact && sweep) {
+      const preBreakCandles = input.candles.slice(0, structureBreak.index + 1);
+      const legLow = preBreakCandles.length > 0 ? Math.min(...preBreakCandles.map((c) => c.low)) : sweep.price;
+      const legHigh = preBreakCandles.length > 0 ? Math.max(...preBreakCandles.map((c) => c.high)) : sweep.price;
+      const protectedExtreme = bullish
+        ? Math.min(sweep.price - (sweep.penetration ?? 0), legLow)
+        : Math.max(sweep.price + (sweep.penetration ?? 0), legHigh);
+
+      const subsequentCandles = input.candles.slice(structureBreak.index + 1);
+      const breached = subsequentCandles.some((c) =>
+        bullish ? c.close < protectedExtreme || c.low < protectedExtreme - 0.5 : c.close > protectedExtreme || c.high > protectedExtreme + 0.5,
+      );
+      if (breached) {
+        structureInvalidated = true;
+        structureInvalidationReason = `Invalidated: price broke through protected ${bullish ? 'low' : 'high'} (${protectedExtreme.toFixed(2)}).`;
+      }
+    }
+  }
+
+  if (structureInvalidated) {
+    stages.structure_break.state = 'not_met';
+    stages.structure_break.missing.push(structureInvalidationReason!);
+    structureBreak = null;
+  } else if (structureBreak) {
     stages.structure_break.state = structureBreak.scope === 'major' ? 'met' : 'partial';
     stages.structure_break.at = structureBreak.time;
     stages.structure_break.evidence.push(
@@ -200,23 +269,55 @@ export function evaluateSetup(input: EvaluateSetupInput): SetupEvaluation {
   }
 
   // ---------------------------------------------------------------- stage 5
-  // Fresh execution FVG. Must be a LOCATION formed by this leg, not any gap
-  // that happens to sit nearby.
-  const fvgAfter = rules.requireFvgAfterStructure
-    ? (structureBreak?.time ?? structureAfter)
-    : structureAfter;
+  // Fresh execution FVG. Formed by this rejection/displacement leg directly after the sweep.
+  const fvgAfter = rules.requireFvgAfterStructure && structureBreak
+    ? structureBreak.time
+    : afterSweep;
 
-  const candidateZones = input.fvgZones
-    .filter((zone) => zone.direction === displacementDirection)
-    .filter((zone) => zone.createdTime <= input.at && zone.createdTime >= fvgAfter)
-    .map((zone) => ({ zone, state: fvgStatusAt(zone, currentIndex) }))
-    .filter(
-      (entry) =>
-        entry.state !== null &&
-        (entry.state.status === 'fresh' || entry.state.status === 'partially_mitigated') &&
-        entry.state.mitigation <= rules.maxFvgMitigation,
-    )
-    .sort((a, b) => b.zone.createdTime - a.zone.createdTime);
+  const candidateZones = structureInvalidated
+    ? []
+    : input.fvgZones
+        .filter((zone) => zone.direction === displacementDirection)
+        .filter((zone) => zone.createdTime <= input.at && zone.createdTime >= fvgAfter)
+        .map((zone) => {
+          const state = fvgStatusAt(zone, currentIndex);
+          const ageBars = currentIndex - zone.createdIndex;
+          const distance = calculateFvgDistance(input.price, zone, input.direction);
+          const distanceAtr = atr > 0 ? distance / atr : 0;
+          const displacementDistance = bestDisplacement
+            ? Math.abs(zone.createdIndex - bestDisplacement.index)
+            : 999;
+          return {
+            zone,
+            state,
+            ageBars,
+            distance,
+            distanceAtr,
+            displacementDistance,
+          };
+        })
+        .filter((entry) => {
+          if (!entry.state) return false;
+          if (entry.state.status !== 'fresh' && entry.state.status !== 'partially_mitigated') return false;
+          if (entry.state.mitigation > rules.maxFvgMitigation) return false;
+          // Age limit
+          if (rules.maxFvgAgeBars > 0 && entry.ageBars > rules.maxFvgAgeBars) return false;
+          // Distance limit in ATR
+          if (rules.maxFvgDistanceAtr > 0 && entry.distanceAtr > rules.maxFvgDistanceAtr) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          // Prefer FVG created immediately by displacement leg (smallest displacementDistance)
+          const aClose = a.displacementDistance <= 2;
+          const bClose = b.displacementDistance <= 2;
+          if (aClose && !bClose) return -1;
+          if (!aClose && bClose) return 1;
+          if (aClose && bClose && a.displacementDistance !== b.displacementDistance) {
+            return a.displacementDistance - b.displacementDistance;
+          }
+          // Tie-breaker: newest creation time
+          return b.zone.createdTime - a.zone.createdTime;
+        });
 
   const chosen = candidateZones[0] ?? null;
   let fvgQuality: number | null = null;
@@ -232,14 +333,16 @@ export function evaluateSetup(input: EvaluateSetupInput): SetupEvaluation {
     stages.execution_fvg.state = 'met';
     stages.execution_fvg.at = chosen.zone.createdTime;
     stages.execution_fvg.evidence.push(
-      `${chosen.zone.timeframe} ${chosen.zone.direction} FVG ${chosen.zone.low.toFixed(2)}–${chosen.zone.high.toFixed(2)} (${chosen.state!.status}, quality ${quality.score}/100)`,
+      `${chosen.zone.timeframe} ${chosen.zone.direction} FVG ${chosen.zone.low.toFixed(2)}–${chosen.zone.high.toFixed(2)} (${chosen.state!.status}, quality ${quality.score}/100, dist ${chosen.distanceAtr.toFixed(1)} ATR)`,
       ...quality.reasons,
     );
   } else {
     stages.execution_fvg.missing.push(
-      rules.requireFvgAfterStructure
-        ? 'No fresh FVG created after the structure break.'
-        : 'No fresh FVG available in this leg.',
+      structureInvalidated
+        ? 'No valid execution FVG (setup structure was invalidated or expired).'
+        : rules.requireFvgAfterStructure
+        ? 'No fresh, nearby FVG created after the structure break.'
+        : 'No fresh, nearby FVG available in this leg.',
     );
   }
 
@@ -326,6 +429,7 @@ export function evaluateSetup(input: EvaluateSetupInput): SetupEvaluation {
     sessionValid: sessionValid || !rules.enforceSessionFilter,
     news,
     manualBlock: input.manualBlock?.active ?? false,
+    hasInvalidation: structureInvalidated,
   });
 
   return {
@@ -386,9 +490,11 @@ function deriveStatus(args: {
   sessionValid: boolean;
   news: NewsRisk;
   manualBlock: boolean;
+  hasInvalidation?: boolean;
 }): SetupStatus {
   if (args.manualBlock) return 'blocked';
   if (args.news.filterBlocks) return 'blocked';
+  if (args.hasInvalidation) return 'no_setup';
   if (args.stagesMet === 0) return 'no_setup';
   if (!args.allTechnicalMet) return 'forming';
   if (!args.sessionValid) return 'valid_out_of_session';
