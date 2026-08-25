@@ -21,6 +21,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Shown wherever the user has to come back and start again.
+$ReRunCommand = 'irm https://raw.githubusercontent.com/Badr-Hammani/trading_app/claude/xauusd-trading-command-center-jhsgaw/bootstrap.ps1 | iex'
+
 function Head($t) { Write-Host ''; Write-Host "  $t" -ForegroundColor Cyan; Write-Host "  $('-' * $t.Length)" -ForegroundColor DarkGray }
 function Say($t)  { Write-Host "  $t" -ForegroundColor Gray }
 function Ok($t)   { Write-Host "  $t" -ForegroundColor Green }
@@ -75,9 +78,19 @@ if (-not $haveGit -or -not $haveDocker) {
         Head 'Installing Docker Desktop'
         winget install --id Docker.DockerDesktop -e --accept-package-agreements --accept-source-agreements
         Write-Host ''
-        Warn 'Docker Desktop needs a restart before it will work.'
-        Warn 'Restart Windows, start Docker Desktop, wait for the whale icon'
-        Warn 'to stop animating, then run this file again.'
+        Ok   'Docker Desktop installed.'
+        Write-Host ''
+        Warn 'It needs a Windows restart before the engine will run.'
+        Write-Host ''
+        Say  '  1. Restart Windows'
+        Say  '  2. Open Docker Desktop and accept the service agreement'
+        Say  '     (first launch may also install WSL2 - let it finish)'
+        Say  '  3. Wait for the whale icon to stop animating'
+        Say  '  4. Run this again:'
+        Write-Host ''
+        Write-Host "     $ReRunCommand" -ForegroundColor White
+        Write-Host ''
+        Say  'Everything after this point is automatic.'
         Pause-Exit 0
     }
 
@@ -109,8 +122,11 @@ if ($LASTEXITCODE -ne 0) {
     if (-not $engineUp) {
         Write-Host ''
         Bad 'Docker did not start within five minutes.'
-        Say 'Open Docker Desktop yourself, wait for the whale icon to settle,'
-        Say 'then run this file again.'
+        Say 'Open Docker Desktop yourself. On a first launch it may be waiting'
+        Say 'on the service agreement, or installing WSL2 - both need a click.'
+        Say 'Once the whale icon stops animating, run this again:'
+        Write-Host ''
+        Write-Host "  $ReRunCommand" -ForegroundColor White
         Pause-Exit 1
     }
 }
