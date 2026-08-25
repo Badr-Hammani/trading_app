@@ -125,6 +125,32 @@ only. Migrations run automatically on container start.
 If Docker is not running the script says so and stops, rather than failing
 somewhere less obvious.
 
+### Bringing an existing database with you
+
+`docker compose` creates a **new, empty** PostgreSQL volume. It does not read a
+PostgreSQL server already installed on the host — different server, different
+data directory. Start the stack after moving machines and the app comes up
+working but empty: no candles, no trades, no journal.
+
+If you have a dump from the old machine, restore it **before** the first start:
+
+```powershell
+.\restore-db.ps1                                        # looks in Desktop\PC-MIGRATION\database
+.\restore-db.ps1 -DumpPath "C:\path\to\your.dump"      # or point at it
+.\restore-db.ps1 -DumpPath "C:\path\to\your.sql" -Sql  # plain SQL instead of pg_dump -F c
+```
+
+It brings up only the database, restores, then counts rows in `MarketCandle`,
+`Trade` and the rest so you can see the data actually landed rather than
+trusting an exit code. Then run `.\start.ps1` as usual and sign in with the
+account from the old machine — it comes across with the data.
+
+To take a dump from a running stack:
+
+```powershell
+docker compose exec db pg_dump -U xau -F c xau_command_center > backup.dump
+```
+
 ### Or by hand
 
 ```bash
