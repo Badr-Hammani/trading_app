@@ -88,8 +88,34 @@ describe('trading signals', () => {
       const risk = Math.abs(signal.entryPrice - signal.stopLoss);
       expect(signal.riskRewardTp2).toBeCloseTo(Math.abs(signal.takeProfit2 - signal.entryPrice) / risk, 1);
       expect(signal.riskRewardTp3).toBeCloseTo(Math.abs(signal.takeProfit3 - signal.entryPrice) / risk, 1);
-      // Targets must climb, or they are not targets.
+      // Targets must climb, or they are not targets. TP3 used to be taken from
+      // the nearest opposite liquidity pool without checking it was beyond
+      // TP2, which produced a "third" target closer than the second.
       expect(signal.riskRewardTp2).toBeGreaterThan(signal.riskRewardTp1);
+      expect(signal.riskRewardTp3).toBeGreaterThan(signal.riskRewardTp2);
+    }
+  });
+
+  it('ignores a liquidity pool nearer than TP2 when choosing TP3', () => {
+    // A buy-side pool close above entry must not become TP3; TP3 has to stay
+    // beyond TP2 or the targets are out of order.
+    const near = { ...level(2002.5), type: 'EQUAL_HIGHS' as const, side: 'buy-side' as const, price: 2003.2, status: 'intact' as const };
+    const signals = detectSignals({
+      at: AT, price: 2002.5,
+      bias: { '4H': 'bullish', '1H': 'bullish', '30M': 'bullish' },
+      candles: makeCandles([[2004, 2006, 2003, 2005], [2005, 2006, 2002, 2004], [2003, 2005.5, 2001.2, 2005]]),
+      executionTimeframe: '5M',
+      liquidity: [level(2002.5), near],
+      fvgZones: [zone(2001, 2003)],
+      structureEvents: [breakEvent],
+      displacement: [displacement],
+      sessions: DEFAULT_SESSIONS,
+      rules: DEFAULT_STRATEGY_RULES,
+    });
+
+    for (const signal of signals.filter((s) => s.direction === 'long')) {
+      expect(signal.takeProfit3).toBeGreaterThan(signal.takeProfit2);
+      expect(signal.takeProfit3).not.toBeCloseTo(2003.2, 2);
     }
   });
 

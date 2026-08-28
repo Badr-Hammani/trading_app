@@ -77,12 +77,25 @@ export function detectSignals(options: DetectSignalsOptions): TradingSignal[] {
       const tp1 = dir === 'long' ? entryPrice + risk * 2 : entryPrice - risk * 2;
       const tp2 = dir === 'long' ? entryPrice + risk * 3 : entryPrice - risk * 3;
 
-      // Target opposite liquidity level for TP3 if available AND in trade direction
+      // TP3 aims at the opposite liquidity pool, but only when that pool is
+      // genuinely FURTHER than TP2. A level sitting between TP1 and TP2 is a
+      // nearer target, not a third one: taking it made TP3 land closer than
+      // TP2, so the card listed targets that ran backwards.
       let tp3: number;
       const oppositeSide = dir === 'long' ? 'buy-side' : 'sell-side';
-      const targetLevel = options.liquidity.find(
-        (l) => l.side === oppositeSide && l.status === 'intact' && (dir === 'long' ? l.price > entryPrice : l.price < entryPrice),
-      );
+      const beyondTp2 = (price: number): boolean =>
+        dir === 'long' ? price > tp2 : price < tp2;
+      const targetLevel = options.liquidity
+        .filter(
+          (l) =>
+            l.side === oppositeSide &&
+            l.status === 'intact' &&
+            (dir === 'long' ? l.price > entryPrice : l.price < entryPrice) &&
+            beyondTp2(l.price),
+        )
+        // Nearest qualifying pool, so TP3 is reachable rather than the furthest
+        // level that happens to be on the books.
+        .sort((a, b) => Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice))[0];
 
       if (targetLevel) {
         tp3 = targetLevel.price;

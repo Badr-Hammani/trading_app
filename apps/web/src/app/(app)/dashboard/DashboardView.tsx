@@ -49,9 +49,12 @@ interface TodayResponse {
  * today's stats along the bottom.
  */
 export function DashboardView() {
-  const { timeframe, setTimeframe, direction, setDirection, refreshMs } = useAppStore();
+  const { timeframe, setTimeframe, direction, setDirection, refreshMs, setPendingTrade } =
+    useAppStore();
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [selectedTrade, setSelectedTrade] = useState<TradeOverlay | null>(null);
+  // Names the signal just loaded, so the click has visible feedback.
+  const [loadedSignal, setLoadedSignal] = useState<string | null>(null);
 
   const analysis = usePolling<AnalysisResponse>(
     `/api/analysis?timeframe=${timeframe}&limit=600`,
@@ -247,7 +250,7 @@ export function DashboardView() {
             price={data?.price ?? null}
             timezone={timezone}
             onSelectSignal={(signal) => {
-              setSelectedTrade({
+              const trade = {
                 direction: signal.direction,
                 entry: signal.entryPrice,
                 stopLoss: signal.stopLoss,
@@ -255,9 +258,27 @@ export function DashboardView() {
                 takeProfit2: signal.takeProfit2,
                 takeProfit3: signal.takeProfit3,
                 label: `${signal.type} ${signal.symbol}`,
-              });
+              };
+              // The button promises "Risk Calculator & Chart". It used to do
+              // only the chart: the risk calculator lives on /risk and had no
+              // way to receive anything, so half the click did nothing.
+              setSelectedTrade(trade);
+              setPendingTrade(trade);
+              setLoadedSignal(trade.label);
             }}
           />
+          {loadedSignal && (
+            <div className="flex items-center justify-between gap-2 rounded-card border border-accent/40 bg-accent/10 px-2.5 py-2">
+              <span className="text-2xs leading-relaxed text-ink-200">
+                <span className="font-semibold text-accent">{loadedSignal}</span> drawn on the
+                chart and loaded into the risk calculator.
+              </span>
+              <Link href="/risk" className="btn btn-primary shrink-0">
+                Size it →
+              </Link>
+            </div>
+          )}
+
           <LiquidityPanel
             levels={data?.liquidity ?? []}
             price={data?.price ?? null}

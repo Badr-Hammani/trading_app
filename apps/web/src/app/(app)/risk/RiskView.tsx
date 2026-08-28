@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { InstrumentSpec } from '@xau/core';
 import { RiskCalculator, EMPTY_RISK_INPUTS, type RiskInputs } from '@/components/panels/RiskCalculator';
 import { Panel, Spinner, Stat } from '@/components/ui/Panel';
 import { patch, put } from '@/lib/client';
 import { fmtCurrency, fmtNumber } from '@/lib/format';
 import { useAction, usePolling } from '@/lib/hooks';
+import { useAppStore } from '@/store/app';
 
 interface AccountResponse {
   accounts: { id: string; name: string; broker: string; currency: string; balance: number; isDefault: boolean }[];
@@ -22,6 +23,27 @@ interface AccountResponse {
  */
 export function RiskView() {
   const [inputs, setInputs] = useState<RiskInputs>(EMPTY_RISK_INPUTS);
+  const [loadedFrom, setLoadedFrom] = useState<string | null>(null);
+  const consumePendingTrade = useAppStore((state) => state.consumePendingTrade);
+
+  // A signal loaded on the dashboard arrives here. Consumed once, so coming
+  // back later does not silently overwrite whatever is being worked on.
+  useEffect(() => {
+    const pending = consumePendingTrade();
+    if (!pending) return;
+    const text = (value: number | null): string =>
+      value === null || !Number.isFinite(value) ? '' : String(value);
+    setInputs((current) => ({
+      ...current,
+      direction: pending.direction,
+      entry: text(pending.entry),
+      stopLoss: text(pending.stopLoss),
+      takeProfit1: text(pending.takeProfit1),
+      takeProfit2: text(pending.takeProfit2),
+      takeProfit3: text(pending.takeProfit3),
+    }));
+    setLoadedFrom(pending.label);
+  }, [consumePendingTrade]);
   const account = usePolling<AccountResponse>('/api/account', 0);
 
   const primary = account.data?.accounts.find((entry) => entry.isDefault) ?? account.data?.accounts[0];
@@ -29,7 +51,15 @@ export function RiskView() {
 
   return (
     <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-      <RiskCalculator inputs={inputs} onChange={setInputs} />
+      <div className="space-y-2">
+        {loadedFrom && (
+          <p className="rounded-card border border-accent/40 bg-accent/10 px-2.5 py-2 text-2xs leading-relaxed text-ink-200">
+            Prefilled from <span className="font-semibold text-accent">{loadedFrom}</span>. These
+            are the signal&rsquo;s levels — edit anything before sizing.
+          </p>
+        )}
+        <RiskCalculator inputs={inputs} onChange={setInputs} />
+      </div>
 
       <div className="space-y-2">
         {account.loading ? (
