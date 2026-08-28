@@ -20,12 +20,19 @@ export function LiquidityPanel({
   timezone,
   onChanged,
   compact = false,
+  stale = false,
 }: {
   levels: LiquidityLevel[];
   price: number | null;
   timezone: string;
   onChanged?: () => void;
   compact?: boolean;
+  /**
+   * True when sweep state could not be recomputed (no candles for this
+   * timeframe). The levels are real; their status is as last stored, so the
+   * panel must not present "intact" as a fresh finding.
+   */
+  stale?: boolean;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [type, setType] = useState<(typeof LIQUIDITY_TYPES)[number]>('PDH');
@@ -61,7 +68,11 @@ export function LiquidityPanel({
   return (
     <Panel
       title="Liquidity map"
-      subtitle={`${levels.filter((level) => level.status === 'intact').length} intact · ${levels.filter((level) => level.status === 'swept').length} swept`}
+      subtitle={
+        stale
+          ? `${levels.length} levels · sweep state not re-checked`
+          : `${levels.filter((level) => level.status === 'intact').length} intact · ${levels.filter((level) => level.status === 'swept').length} swept`
+      }
       actions={
         <>
           <button
@@ -128,6 +139,13 @@ export function LiquidityPanel({
             Add level
           </button>
         </form>
+      )}
+
+      {stale && (
+        <p className="rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-2xs leading-relaxed text-warn">
+          Sweep status could not be re-checked — this timeframe has no candles loaded. The
+          levels and prices are real; the status shown is whatever was last recorded.
+        </p>
       )}
 
       {shown.length === 0 ? (

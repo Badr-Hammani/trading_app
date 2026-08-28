@@ -71,11 +71,11 @@ export function BiasPanel({
       {ROWS.map((row) => {
         const value = local[row.timeframe] ?? 'neutral';
         return (
-          <div key={row.timeframe} className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-2xs uppercase tracking-wide text-ink-400">
+          <div key={row.timeframe}>
+            <span className="mb-0.5 block text-2xs uppercase tracking-wide text-ink-400">
               {row.label}
             </span>
-            <div className="flex flex-1 gap-1">
+            <div className="flex gap-1">
               {BIASES.map((option) => (
                 <button
                   key={option}
@@ -83,7 +83,7 @@ export function BiasPanel({
                   disabled={saving === row.timeframe}
                   onClick={() => void setBias(row.timeframe, option)}
                   className={clsx(
-                    'flex-1 rounded border px-1 py-1 text-2xs font-semibold transition-colors',
+                    'min-w-0 flex-1 rounded border px-1 py-1 text-2xs font-semibold transition-colors',
                     value === option
                       ? TONES[option]
                       : 'border-ink-700 text-ink-500 hover:border-ink-600 hover:text-ink-300',

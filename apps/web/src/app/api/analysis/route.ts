@@ -34,13 +34,12 @@ export async function GET(request: Request) {
       isHistoricalAt ? at : undefined,
       isHistoricalAt,
     );
-    if (candlesResult.status !== 'ok') {
-      return json({ dataAvailable: false, candles: candlesResult, timezone: context.timezone });
-    }
-
-    // Replay and historical review must not see beyond the reference instant.
-    const candles = candlesResult.data.candles.filter((candle) => candle.time <= at);
-
+    // These are read BEFORE the candle check on purpose. Liquidity levels are
+    // prices and the trader's bias is their own judgement — neither depends on
+    // whether this timeframe happens to have candles imported. Returning them
+    // only on the happy path made the panels report "0 intact / 0 swept" while
+    // 79 levels sat in the database: a false statement, which is worse than an
+    // absent one.
     const dayStart = new Date(startOfLocalDay(at, context.timezone) * 1000);
     const [levelRows, eventRows, biasMap] = await Promise.all([
       prisma.liquidityLevel.findMany({ where: { userId: user.id, symbol: context.symbol } }),
@@ -55,6 +54,26 @@ export async function GET(request: Request) {
     ]);
 
     const bias = biasMap as Partial<Record<Timeframe, Bias>>;
+
+    if (candlesResult.status !== 'ok') {
+      return json({
+        dataAvailable: false,
+        candles: candlesResult,
+        timezone: context.timezone,
+        symbol: context.symbol,
+        timeframe,
+        at,
+        // Everything below is real and independent of the missing candles.
+        bias,
+        liquidity: levelRows.map(rowToLiquidity),
+        // Sweep state cannot be recomputed without candles, so the levels are
+        // returned as stored rather than re-evaluated.
+        liquidityStale: true,
+      });
+    }
+
+    // Replay and historical review must not see beyond the reference instant.
+    const candles = candlesResult.data.candles.filter((candle) => candle.time <= at);
 
     const analysis = analyse({
       context,

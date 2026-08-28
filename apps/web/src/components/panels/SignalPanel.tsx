@@ -136,12 +136,14 @@ function SignalCard({
           <span className="font-semibold text-rose-400">{fmtNumber(signal.stopLoss, 2)}</span>
         </div>
         <div>
-          <span className="text-zinc-500 block text-[10px] uppercase">TP1 (1:2)</span>
+          <span className="text-zinc-500 block text-[10px] uppercase">TP1</span>
           <span className="font-semibold text-emerald-400">{fmtNumber(signal.takeProfit1, 2)}</span>
         </div>
         <div>
-          <span className="text-zinc-500 block text-[10px] uppercase">R:R Ratio</span>
-          <span className="font-semibold text-amber-400">{signal.riskRewardRatio}:1</span>
+          <span className="text-zinc-500 block text-[10px] uppercase">Reward : risk</span>
+          <span className="font-semibold text-amber-400" title="Reward-to-risk at TP1">
+            {signal.riskRewardTp1}:1 <span className="text-zinc-500">at TP1</span>
+          </span>
         </div>
       </div>
 

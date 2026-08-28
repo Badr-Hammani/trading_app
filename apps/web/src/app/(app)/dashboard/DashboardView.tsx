@@ -123,17 +123,24 @@ export function DashboardView() {
       <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(210px,220px)_minmax(0,1fr)_minmax(300px,340px)]">
         {/* -------------------------------------------------------- left */}
         <div className="space-y-2">
-          {data?.dataAvailable ? (
-            <BiasPanel
-              bias={data.bias ?? {}}
-              suggested={data.suggestedBias}
-              suggestionEnabled={data.biasSuggestionEnabled}
-              onChanged={() => void analysis.refresh()}
-            />
-          ) : (
+          {/*
+            Bias is the trader's own judgement, not a reading of the candles,
+            so it stays editable even on a timeframe with nothing imported.
+            Gating it on `dataAvailable` left a spinner that never resolved and
+            no way to record a bias at all. Only the engine's SUGGESTION —
+            which genuinely needs candles — is withheld.
+          */}
+          {analysis.loading && !data ? (
             <Panel title="Market regime">
               <Spinner />
             </Panel>
+          ) : (
+            <BiasPanel
+              bias={data?.bias ?? {}}
+              suggested={data?.dataAvailable ? data.suggestedBias : null}
+              suggestionEnabled={data?.biasSuggestionEnabled}
+              onChanged={() => void analysis.refresh()}
+            />
           )}
 
           {evaluation && (
@@ -256,6 +263,7 @@ export function DashboardView() {
             price={data?.price ?? null}
             timezone={timezone}
             onChanged={() => void analysis.refresh()}
+            stale={Boolean(data?.liquidityStale)}
             compact
           />
           <FvgPanel zones={data?.fvgZones ?? []} price={data?.price ?? null} timezone={timezone} compact />

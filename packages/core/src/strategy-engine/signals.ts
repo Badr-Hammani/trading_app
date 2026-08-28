@@ -16,7 +16,15 @@ export interface TradingSignal {
   takeProfit1: number;
   takeProfit2: number;
   takeProfit3: number;
+  /**
+   * Reward-to-risk for EACH target, so a caller can never show one target's
+   * price beside another target's ratio. `riskRewardRatio` is TP1's, because
+   * TP1 is what the signal card displays.
+   */
   riskRewardRatio: number;
+  riskRewardTp1: number;
+  riskRewardTp2: number;
+  riskRewardTp3: number;
   fvgId: string | null;
   liquidityLevelId: string | null;
   summary: string;
@@ -83,7 +91,15 @@ export function detectSignals(options: DetectSignalsOptions): TradingSignal[] {
       }
 
       const qualityScore = Math.round(displacement?.score ?? 70);
-      const rr = Number((Math.abs(tp2 - entryPrice) / risk).toFixed(1));
+
+      // One ratio per target. Deriving a single "the" ratio from TP2 and then
+      // rendering it next to TP1 overstated the reward on the target actually
+      // shown by 50%.
+      const ratioFor = (target: number): number =>
+        Number((Math.abs(target - entryPrice) / risk).toFixed(1));
+      const rrTp1 = ratioFor(tp1);
+      const rrTp2 = ratioFor(tp2);
+      const rrTp3 = ratioFor(tp3);
 
       signals.push({
         id: `${type.toLowerCase()}-${options.executionTimeframe}-${options.at}-${Math.round(entryPrice)}`,
@@ -98,7 +114,10 @@ export function detectSignals(options: DetectSignalsOptions): TradingSignal[] {
         takeProfit1: Number(tp1.toFixed(2)),
         takeProfit2: Number(tp2.toFixed(2)),
         takeProfit3: Number(tp3.toFixed(2)),
-        riskRewardRatio: rr,
+        riskRewardRatio: rrTp1,
+        riskRewardTp1: rrTp1,
+        riskRewardTp2: rrTp2,
+        riskRewardTp3: rrTp3,
         fvgId: fvg?.id ?? null,
         liquidityLevelId: liquiditySweep?.levelId ?? null,
         summary: summary || `${type} signal forming at ${entryPrice.toFixed(2)}`,

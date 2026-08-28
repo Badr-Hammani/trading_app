@@ -29,6 +29,8 @@ export interface AnalysisResponse {
   session?: SessionStatus;
   market?: 'open' | 'closed' | 'weekend';
   liquidity?: LiquidityLevel[];
+  /** Sweep state could not be recomputed — levels are as stored. */
+  liquidityStale?: boolean;
   fvgZones?: (FvgZone & { quality?: number })[];
   structureEvents?: StructureEvent[];
   swings?: LabelledSwing[];
